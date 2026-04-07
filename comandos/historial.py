@@ -196,6 +196,45 @@ def _build_historial_txt(bot_name: str, owner_id: str, filas: list[dict]) -> byt
     content = "\n".join(header + lines) + "\n"
     return content.encode("utf-8", errors="replace")
 
+
+def _build_historial_caption(bot_name: str, owner_id: str, filas: list[dict]) -> str:
+    rows = sorted(
+        filas,
+        key=lambda row: _parse_iso_utc(row.get("FECHA")) or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    por_tipo: dict[str, int] = {}
+    hoy = 0
+    ultima_fecha: datetime | None = None
+
+    try:
+        lima_today = datetime.now(ZoneInfo("America/Lima")).date()
+    except Exception:
+        lima_today = datetime.utcnow().date()
+
+    for row in rows:
+        consulta = _clean_counter_key(row.get("CONSULTA"), "SIN TIPO")
+        por_tipo[consulta] = por_tipo.get(consulta, 0) + 1
+        dt_lima = _to_lima_dt(row.get("FECHA"))
+        if dt_lima:
+            if dt_lima.date() == lima_today:
+                hoy += 1
+            if ultima_fecha is None or dt_lima > ultima_fecha:
+                ultima_fecha = dt_lima
+
+    top_tipo = "—"
+    if por_tipo:
+        top_tipo = sorted(por_tipo.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+    return (
+        f"<b>{bot_name} • Exportación de historial</b>\n"
+        f"ID consultado: <code>{html.escape(owner_id)}</code>\n"
+        f"Total: <b>{len(rows)}</b>\n"
+        f"Hoy: <b>{hoy}</b>\n"
+        f"Top consulta: <b>{html.escape(top_tipo)}</b>\n"
+        f"Ultima: <code>{html.escape(_to_lima(ultima_fecha.isoformat()) if ultima_fecha else '—')}</code>"
+    )
+
 # ================== Comando ==================
 async def historial_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -264,11 +303,7 @@ async def historial_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bio = io.BytesIO(data_bytes)
     bio.name = filename
 
-    caption = (
-        f"<b>{pretty_bot} • Exportación de historial</b>\n"
-        f"ID consultado: <code>{html.escape(target_id)}</code>\n"
-        f"Registros: <b>{len(filas)}</b>"
-    )
+    caption = _build_historial_caption(pretty_bot, target_id, filas)
 
     await msg.reply_document(
         document=InputFile(bio, filename=filename),

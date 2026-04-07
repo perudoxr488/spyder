@@ -215,6 +215,53 @@ def _build_compras_txt(bot_name: str, owner_id: str, filas: list[dict]) -> bytes
     return content.encode("utf-8", errors="replace")
 
 
+def _build_compras_caption(bot_name: str, owner_id: str, filas: list[dict]) -> str:
+    rows = sorted(
+        filas,
+        key=lambda row: _parse_iso_utc(row.get("FECHA")) or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    por_vendedor: dict[str, int] = {}
+    total_dias = 0
+    compras_hoy = 0
+    ultima_fecha: datetime | None = None
+
+    try:
+        lima_today = datetime.now(ZoneInfo("America/Lima")).date()
+    except Exception:
+        lima_today = datetime.utcnow().date()
+
+    for row in rows:
+        vendedor = str(row.get("ID_VENDEDOR") or "—").strip() or "—"
+        por_vendedor[vendedor] = por_vendedor.get(vendedor, 0) + 1
+
+        cantidad = " ".join(str(row.get("CANTIDAD") or "—").upper().split()).strip()
+        amount = _extract_first_number(cantidad)
+        if amount is not None and "DIA" in cantidad:
+            total_dias += amount
+
+        dt_lima = _to_lima_dt(row.get("FECHA"))
+        if dt_lima:
+            if dt_lima.date() == lima_today:
+                compras_hoy += 1
+            if ultima_fecha is None or dt_lima > ultima_fecha:
+                ultima_fecha = dt_lima
+
+    top_vendedor = "—"
+    if por_vendedor:
+        top_vendedor = sorted(por_vendedor.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+    return (
+        f"<b>{bot_name} • Exportación de compras</b>\n"
+        f"ID consultado: <code>{html.escape(owner_id)}</code>\n"
+        f"Total: <b>{len(rows)}</b>\n"
+        f"Hoy: <b>{compras_hoy}</b>\n"
+        f"Dias aprox.: <b>{total_dias}</b>\n"
+        f"Top vendedor: <b>{html.escape(top_vendedor)}</b>\n"
+        f"Ultima: <code>{html.escape(_to_lima(ultima_fecha.isoformat()) if ultima_fecha else '—')}</code>"
+    )
+
+
 async def compras_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     msg = update.effective_message
@@ -285,11 +332,7 @@ async def compras_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bio = io.BytesIO(data_bytes)
     bio.name = filename
 
-    caption = (
-        f"<b>{pretty_bot} • Exportación de compras</b>\n"
-        f"ID consultado: <code>{html.escape(target_id)}</code>\n"
-        f"Registros: <b>{len(filas)}</b>"
-    )
+    caption = _build_compras_caption(pretty_bot, target_id, filas)
 
     await msg.reply_document(
         document=InputFile(bio, filename=filename),
