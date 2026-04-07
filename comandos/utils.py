@@ -19,6 +19,21 @@ except Exception:
 
 API_BASE = (CFG.get("API_BASE") or "").rstrip("/")
 INTERNAL_API_KEY = (CFG.get("INTERNAL_API_KEY") or CFG.get("TOKEN_BOT") or "").strip()
+API_BASE = (
+    os.environ.get("SPIDERSYN_API_BASE")
+    or os.environ.get("API_BASE")
+    or os.environ.get("API_DB_BASE")
+    or CFG.get("API_DB_BASE")
+    or CFG.get("API_BASE")
+    or ""
+).rstrip("/")
+INTERNAL_API_KEY = (
+    os.environ.get("SPIDERSYN_INTERNAL_API_KEY")
+    or os.environ.get("INTERNAL_API_KEY")
+    or CFG.get("INTERNAL_API_KEY")
+    or CFG.get("TOKEN_BOT")
+    or ""
+).strip()
 
 
 def _fetch_json(url: str, timeout: int = 20, method: str = "GET", payload: dict | None = None):

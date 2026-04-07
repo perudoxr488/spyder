@@ -12,9 +12,10 @@ from urllib.error import HTTPError, URLError
 from telegram import Update, InputFile
 from telegram.ext import ContextTypes
 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 API_DB_BASE = "http://127.0.0.1:4764"   # tg_info, historial_id
 INTERNAL_API_KEY = ""
-CONFIG_FILE_PATH = "config.json"
+CONFIG_FILE_PATH = os.path.join(BASE_DIR, "config.json")
 
 # ================== Carga de config ==================
 CFG = {}
@@ -22,10 +23,24 @@ try:
     if os.path.exists(CONFIG_FILE_PATH):
         with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
             CFG = json.load(f)
-        API_DB_BASE = (CFG.get("API_DB_BASE") or CFG.get("API_BASE") or API_DB_BASE).rstrip("/")
-        INTERNAL_API_KEY = (CFG.get("INTERNAL_API_KEY") or CFG.get("TOKEN_BOT") or "").strip()
 except Exception:
     CFG = {}
+
+API_DB_BASE = (
+    os.environ.get("SPIDERSYN_API_BASE")
+    or os.environ.get("API_BASE")
+    or os.environ.get("API_DB_BASE")
+    or CFG.get("API_DB_BASE")
+    or CFG.get("API_BASE")
+    or API_DB_BASE
+).rstrip("/")
+INTERNAL_API_KEY = (
+    os.environ.get("SPIDERSYN_INTERNAL_API_KEY")
+    or os.environ.get("INTERNAL_API_KEY")
+    or CFG.get("INTERNAL_API_KEY")
+    or CFG.get("TOKEN_BOT")
+    or ""
+).strip()
 
 BOT_NAME = (CFG.get("BOT_NAME") or "").strip() or "#BOT"
 ADMIN_IDS = set(CFG.get("ADMIN_ID") or [])

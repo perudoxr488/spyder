@@ -21,8 +21,21 @@ try:
 except Exception:
     CFG = {}
 
-API_BASE = (CFG.get("API_BASE") or "").rstrip("/")
-INTERNAL_API_KEY = (CFG.get("INTERNAL_API_KEY") or CFG.get("TOKEN_BOT") or "").strip()
+API_BASE = (
+    os.environ.get("SPIDERSYN_API_BASE")
+    or os.environ.get("API_BASE")
+    or os.environ.get("API_DB_BASE")
+    or CFG.get("API_DB_BASE")
+    or CFG.get("API_BASE")
+    or ""
+).rstrip("/")
+INTERNAL_API_KEY = (
+    os.environ.get("SPIDERSYN_INTERNAL_API_KEY")
+    or os.environ.get("INTERNAL_API_KEY")
+    or CFG.get("INTERNAL_API_KEY")
+    or CFG.get("TOKEN_BOT")
+    or ""
+).strip()
 
 CRED_ENDPOINT = f"{API_BASE}/cred"
 SUB_ENDPOINT = f"{API_BASE}/sub"

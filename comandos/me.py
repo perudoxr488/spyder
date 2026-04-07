@@ -19,18 +19,32 @@ DB_PATH = os.path.join(BASE_DIR, "multiplataforma.db")
 BOT_NAME = ""
 API_BASE = ""
 INTERNAL_API_KEY = ""
+cfg = {}
 
 if os.path.exists(CONFIG_FILE_PATH):
     try:
         with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
             cfg = json.load(f)
         BOT_NAME = (cfg.get("BOT_NAME") or cfg.get("NAME") or "SpiderSyn").strip()
-        API_BASE = (cfg.get("API_DB_BASE") or cfg.get("API_BASE") or "").rstrip("/")
-        INTERNAL_API_KEY = (cfg.get("INTERNAL_API_KEY") or cfg.get("TOKEN_BOT") or "").strip()
     except Exception:
         BOT_NAME = ""
-        API_BASE = ""
-        INTERNAL_API_KEY = ""
+        cfg = {}
+
+API_BASE = (
+    os.environ.get("SPIDERSYN_API_BASE")
+    or os.environ.get("API_BASE")
+    or os.environ.get("API_DB_BASE")
+    or cfg.get("API_DB_BASE")
+    or cfg.get("API_BASE")
+    or ""
+).rstrip("/")
+INTERNAL_API_KEY = (
+    os.environ.get("SPIDERSYN_INTERNAL_API_KEY")
+    or os.environ.get("INTERNAL_API_KEY")
+    or cfg.get("INTERNAL_API_KEY")
+    or cfg.get("TOKEN_BOT")
+    or ""
+).strip()
 
 
 def _to_lima_iso_hm(iso_str: Optional[str]) -> str:

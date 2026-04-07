@@ -30,8 +30,21 @@ else:
     ADMIN_IDS = {int(_admin_raw)} if str(_admin_raw).isdigit() else set()
 
 BOT_BRAND = (CFG.get("BOT_NAME") or CFG.get("NAME") or "#BOT").strip()
-API_BASE = (CFG.get("API_BASE") or "").rstrip("/")
-INTERNAL_API_KEY = (CFG.get("INTERNAL_API_KEY") or CFG.get("TOKEN_BOT") or "").strip()
+API_BASE = (
+    os.environ.get("SPIDERSYN_API_BASE")
+    or os.environ.get("API_BASE")
+    or os.environ.get("API_DB_BASE")
+    or CFG.get("API_DB_BASE")
+    or CFG.get("API_BASE")
+    or ""
+).rstrip("/")
+INTERNAL_API_KEY = (
+    os.environ.get("SPIDERSYN_INTERNAL_API_KEY")
+    or os.environ.get("INTERNAL_API_KEY")
+    or CFG.get("INTERNAL_API_KEY")
+    or CFG.get("TOKEN_BOT")
+    or ""
+).strip()
 CMDS = CFG.get("CMDS", {}) or {}
 LOGO = CFG.get("LOGO", {}) or {}
 _ALLOWED_VIEW = {"FUNDADOR", "CO-FUNDADOR", "SELLER"}

@@ -23,8 +23,21 @@ except Exception:
     CFG = {}
 
 BOT_NAME = (CFG.get("BOT_NAME") or CFG.get("NAME") or "").strip() or "#BOT"
-API_BASE = (CFG.get("API_BASE") or CFG.get("API_BASE") or "").rstrip("/")
-INTERNAL_API_KEY = (CFG.get("INTERNAL_API_KEY") or CFG.get("TOKEN_BOT") or "").strip()
+API_BASE = (
+    os.environ.get("SPIDERSYN_API_BASE")
+    or os.environ.get("API_BASE")
+    or os.environ.get("API_DB_BASE")
+    or CFG.get("API_DB_BASE")
+    or CFG.get("API_BASE")
+    or ""
+).rstrip("/")
+INTERNAL_API_KEY = (
+    os.environ.get("SPIDERSYN_INTERNAL_API_KEY")
+    or os.environ.get("INTERNAL_API_KEY")
+    or CFG.get("INTERNAL_API_KEY")
+    or CFG.get("TOKEN_BOT")
+    or ""
+).strip()
 
 _admin_raw = CFG.get("ADMIN_ID")
 if isinstance(_admin_raw, list):
@@ -84,7 +97,7 @@ _ALLOWED_ROLES = {"FUNDADOR", "CO-FUNDADOR", "SELLER"}
 
 
 def _get_user_info(id_tg: str):
-    return _fetch_json(f"{API_DB_BASE}/tg_info?ID_TG={_urlparse.quote(id_tg)}")
+    return _fetch_json(f"{API_BASE}/tg_info?ID_TG={_urlparse.quote(id_tg)}")
 
 
 def _is_authorized_viewer(viewer_id: int, viewer_info: dict) -> bool:
