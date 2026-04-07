@@ -93,6 +93,45 @@ def _to_lima(iso: str | None) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _parse_iso_utc(iso: str | None) -> datetime | None:
+    if not iso:
+        return None
+    s = str(iso).strip()
+    if not s:
+        return None
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _to_lima_dt(iso: str | None) -> datetime | None:
+    dt = _parse_iso_utc(iso)
+    if not dt:
+        return None
+    try:
+        return dt.astimezone(ZoneInfo("America/Lima"))
+    except Exception:
+        return dt
+
+
+def _extract_first_number(text: str | None) -> int | None:
+    if not text:
+        return None
+    current = ""
+    for ch in str(text):
+        if ch.isdigit():
+            current += ch
+        elif current:
+            break
+    return int(current) if current else None
+
+
 _ALLOWED_ROLES = {"FUNDADOR", "CO-FUNDADOR", "SELLER"}
 
 
@@ -109,53 +148,68 @@ def _is_authorized_viewer(viewer_id: int, viewer_info: dict) -> bool:
 
 
 def _build_compras_txt(bot_name: str, owner_id: str, filas: list[dict]) -> bytes:
-    def _key(r):
-        f = r.get("FECHA")
-        if not f:
-            return ""
-        return f
+    def _sort_key(row: dict):
+        dt = _parse_iso_utc(row.get("FECHA"))
+        return dt or datetime.min.replace(tzinfo=timezone.utc)
 
-    rows = sorted(filas, key=_key, reverse=True)
-
-    total = len(rows)
-    por_vendedor = {}
+    rows = sorted(filas, key=_sort_key, reverse=True)
+    por_vendedor: dict[str, int] = {}
+    por_producto: dict[str, int] = {}
     total_dias = 0
+    compras_hoy = 0
+    ultima_fecha: datetime | None = None
 
-    for r in rows:
-        vend = str(r.get("ID_VENDEDOR") or "—")
-        por_vendedor[vend] = por_vendedor.get(vend, 0) + 1
+    try:
+        lima_today = datetime.now(ZoneInfo("America/Lima")).date()
+    except Exception:
+        lima_today = datetime.utcnow().date()
 
-        cant = (r.get("CANTIDAD") or "").upper().strip()
-        num = None
-        for token in cant.split():
-            if token.isdigit():
-                num = int(token)
-                break
-        if num is not None and "DIA" in cant:
-            total_dias += num
+    for row in rows:
+        vendedor = str(row.get("ID_VENDEDOR") or "—").strip() or "—"
+        por_vendedor[vendedor] = por_vendedor.get(vendedor, 0) + 1
+
+        cantidad = " ".join(str(row.get("CANTIDAD") or "—").upper().split()).strip()
+        por_producto[cantidad] = por_producto.get(cantidad, 0) + 1
+
+        amount = _extract_first_number(cantidad)
+        if amount is not None and "DIA" in cantidad:
+            total_dias += amount
+
+        dt_lima = _to_lima_dt(row.get("FECHA"))
+        if dt_lima:
+            if dt_lima.date() == lima_today:
+                compras_hoy += 1
+            if ultima_fecha is None or dt_lima > ultima_fecha:
+                ultima_fecha = dt_lima
 
     header = [
         f"{bot_name} - COMPRAS REGISTRADAS",
         f"ID_TG: {owner_id}",
-        "-" * 48,
-        f"Total de compras: {total}",
-        f"Suma aproximada de días adquiridos: {total_dias}",
+        "-" * 56,
+        f"Total de compras: {len(rows)}",
+        f"Compras de hoy: {compras_hoy}",
+        f"Dias adquiridos aprox.: {total_dias}",
+        f"Ultima compra: {_to_lima(ultima_fecha.isoformat()) if ultima_fecha else '—'}",
     ]
     if por_vendedor:
         header.append("Por vendedor (ID_VENDEDOR):")
         for k, v in sorted(por_vendedor.items(), key=lambda x: (-x[1], x[0])):
             header.append(f"  - {k}: {v}")
-    header.append("-" * 48)
+    if por_producto:
+        header.append("Por compra:")
+        for k, v in sorted(por_producto.items(), key=lambda x: (-x[1], x[0])):
+            header.append(f"  - {k}: {v}")
+    header.append("-" * 56)
     header.append("")
 
     lines = []
-    lines.append("FECHA_LIMA           | CANTIDAD       | VENDEDOR")
-    lines.append("---------------------+----------------+---------")
-    for r in rows:
-        fecha = _to_lima(r.get("FECHA"))
-        cantidad = (r.get("CANTIDAD") or "—")[:14]
-        vendedor = str(r.get("ID_VENDEDOR") or "—")
-        lines.append(f"{fecha:21} | {cantidad:14} | {vendedor}")
+    lines.append("FECHA_LIMA           | CANTIDAD             | VENDEDOR")
+    lines.append("---------------------+----------------------+---------")
+    for row in rows:
+        fecha = _to_lima(row.get("FECHA"))
+        cantidad = " ".join(str(row.get("CANTIDAD") or "—").split())[:20]
+        vendedor = str(row.get("ID_VENDEDOR") or "—")
+        lines.append(f"{fecha:21} | {cantidad:20} | {vendedor}")
 
     content = "\n".join(header + lines) + "\n"
     return content.encode("utf-8", errors="replace")

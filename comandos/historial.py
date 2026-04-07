@@ -42,8 +42,14 @@ INTERNAL_API_KEY = (
     or ""
 ).strip()
 
-BOT_NAME = (CFG.get("BOT_NAME") or "").strip() or "#BOT"
-ADMIN_IDS = set(CFG.get("ADMIN_ID") or [])
+BOT_NAME = (CFG.get("BOT_NAME") or CFG.get("NAME") or "").strip() or "#BOT"
+_admin_raw = CFG.get("ADMIN_ID")
+if isinstance(_admin_raw, list):
+    ADMIN_IDS = {int(x) for x in _admin_raw if str(x).isdigit()}
+elif _admin_raw is None:
+    ADMIN_IDS = set()
+else:
+    ADMIN_IDS = {int(_admin_raw)} if str(_admin_raw).isdigit() else set()
 
 # ================== Utilidades HTTP ==================
 def _fetch_json(url: str, timeout: int = 20):
@@ -72,21 +78,43 @@ def _fetch_json(url: str, timeout: int = 20):
         return 599, {"status": "error", "message": str(e)}
 
 # ================== Utilidades de tiempo ==================
-def _to_lima(iso: str | None) -> str:
+def _parse_iso_utc(iso: str | None) -> datetime | None:
     if not iso:
-        return "—"
-    s = iso.strip()
+        return None
+    s = str(iso).strip()
+    if not s:
+        return None
     if s.endswith("Z"):
-        s = s[:-1]
+        s = s[:-1] + "+00:00"
     try:
-        dt = datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
+        dt = datetime.fromisoformat(s)
     except Exception:
-        return iso
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _to_lima_dt(iso: str | None) -> datetime | None:
+    dt = _parse_iso_utc(iso)
+    if not dt:
+        return None
     try:
-        dt = dt.astimezone(ZoneInfo("America/Lima"))
+        return dt.astimezone(ZoneInfo("America/Lima"))
     except Exception:
-        pass
+        return dt
+
+
+def _to_lima(iso: str | None) -> str:
+    dt = _to_lima_dt(iso)
+    if not dt:
+        return iso or "—"
     return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _clean_counter_key(value: str | None, fallback: str = "OTROS") -> str:
+    cleaned = " ".join(str(value or "").upper().split()).strip(" -_/")
+    return cleaned or fallback
 
 # ================== Autorización ==================
 _ALLOWED_ROLES = {"FUNDADOR", "CO-FUNDADOR", "SELLER"}
@@ -108,65 +136,62 @@ def _is_authorized_viewer(viewer_id: int, viewer_info: dict) -> bool:
 
 # ================== Render TXT ==================
 def _build_historial_txt(bot_name: str, owner_id: str, filas: list[dict]) -> bytes:
-    # Ordenar por fecha DESC
-    def _key(r):
-        f = r.get("FECHA")
-        if not f:
-            return ""
-        return f
-    rows = sorted(filas, key=_key, reverse=True)
+    def _sort_key(row: dict):
+        dt = _parse_iso_utc(row.get("FECHA"))
+        return dt or datetime.min.replace(tzinfo=timezone.utc)
 
-    # Conteos útiles
-    total = len(rows)
-    por_tipo = {}
+    rows = sorted(filas, key=_sort_key, reverse=True)
+    por_tipo: dict[str, int] = {}
+    por_plataforma: dict[str, int] = {}
     hoy = 0
+    ultima_fecha: datetime | None = None
+
     try:
         lima_today = datetime.now(ZoneInfo("America/Lima")).date()
     except Exception:
         lima_today = datetime.utcnow().date()
 
-    for r in rows:
-        t = (r.get("CONSULTA") or "").upper()
-        por_tipo[t] = por_tipo.get(t, 0) + 1
-        # contar hoy
-        ff = r.get("FECHA")
-        if ff:
-            s = ff[:-1] if ff.endswith("Z") else ff
-            try:
-                dt = datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
-                try:
-                    dt = dt.astimezone(ZoneInfo("America/Lima"))
-                except Exception:
-                    pass
-                if dt.date() == lima_today:
-                    hoy += 1
-            except Exception:
-                pass
+    for row in rows:
+        consulta = _clean_counter_key(row.get("CONSULTA"), "SIN TIPO")
+        plataforma = _clean_counter_key(row.get("PLATAFORMA"), "SIN PLATAFORMA")
+        por_tipo[consulta] = por_tipo.get(consulta, 0) + 1
+        por_plataforma[plataforma] = por_plataforma.get(plataforma, 0) + 1
+
+        dt_lima = _to_lima_dt(row.get("FECHA"))
+        if dt_lima:
+            if dt_lima.date() == lima_today:
+                hoy += 1
+            if ultima_fecha is None or dt_lima > ultima_fecha:
+                ultima_fecha = dt_lima
 
     header = [
         f"{bot_name} - HISTORIAL DE CONSULTAS",
         f"ID_TG: {owner_id}",
-        "-"*48,
-        f"Total de consultas: {total}",
+        "-" * 56,
+        f"Total de consultas: {len(rows)}",
         f"Consultas de hoy: {hoy}",
+        f"Ultima consulta: {_to_lima(ultima_fecha.isoformat()) if ultima_fecha else '—'}",
     ]
+    if por_plataforma:
+        header.append("Por plataforma:")
+        for key, value in sorted(por_plataforma.items(), key=lambda item: (-item[1], item[0])):
+            header.append(f"  - {key}: {value}")
     if por_tipo:
         header.append("Por tipo:")
-        for k, v in sorted(por_tipo.items()):
-            header.append(f"  - {k}: {v}")
-    header.append("-"*48)
+        for key, value in sorted(por_tipo.items(), key=lambda item: (-item[1], item[0])):
+            header.append(f"  - {key}: {value}")
+    header.append("-" * 56)
     header.append("")
 
-    # Cuerpo
     lines = []
-    lines.append("FECHA_LIMA           | PLATAFORMA | TIPO   | VALOR")
-    lines.append("---------------------+------------+--------+----------------")
-    for r in rows:
-        fecha = _to_lima(r.get("FECHA"))
-        plat  = (r.get("PLATAFORMA") or "—")[:10]
-        cons  = (r.get("CONSULTA") or "—")[:6]
-        valor = r.get("VALOR") or "—"
-        lines.append(f"{fecha:21} | {plat:10} | {cons:6} | {valor}")
+    lines.append("FECHA_LIMA           | PLATAFORMA | CONSULTA     | VALOR")
+    lines.append("---------------------+------------+--------------+--------------------------")
+    for row in rows:
+        fecha = _to_lima(row.get("FECHA"))
+        plataforma = _clean_counter_key(row.get("PLATAFORMA"), "—")[:10]
+        consulta = _clean_counter_key(row.get("CONSULTA"), "—")[:12]
+        valor = str(row.get("VALOR") or "—")[:26]
+        lines.append(f"{fecha:21} | {plataforma:10} | {consulta:12} | {valor}")
 
     content = "\n".join(header + lines) + "\n"
     return content.encode("utf-8", errors="replace")
