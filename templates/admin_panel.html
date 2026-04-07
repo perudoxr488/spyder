@@ -1,0 +1,786 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>SpiderSyn Panel</title>
+  <style>
+    :root { color-scheme: light; --bg:#f5f3ee; --bg-grad-1:#f7f1e8; --bg-grad-2:#efe7d8; --ink:#1e1d1a; --muted:#6a655c; --card:#fffdf8; --surface:#fff8ef; --surface-2:#f0e6d6; --line:#ddd2bf; --accent:#1f6f5f; --accent-2:#d99b38; --danger:#b64a3c; --accent-3:#325f9b; --preview-bg-1:#d9ecff; --preview-bg-2:#c8e2fb; --preview-line:#b8d2ea; --bubble-bg:#ffffff; --bubble-ink:#1b1f22; --flash-bg:#e7f4ed; --flash-line:#b9dec8; --input-bg:#fffdfa; --shadow-soft:0 10px 30px rgba(79,54,24,.08); --shadow-card:0 10px 20px rgba(79,54,24,.06); }
+    body.dark { color-scheme: dark; --bg:#09110f; --bg-grad-1:#07110e; --bg-grad-2:#10201b; --ink:#f7f1e7; --muted:#9fb0a8; --card:#101917; --surface:#17221f; --surface-2:#1d2a26; --line:#273734; --accent:#55d4b1; --accent-2:#f0b45b; --danger:#e17368; --accent-3:#8bb5ff; --preview-bg-1:#0d2331; --preview-bg-2:#163447; --preview-line:#285166; --bubble-bg:#1a313a; --bubble-ink:#f6efe4; --flash-bg:#122c22; --flash-line:#275141; --input-bg:#0d1614; --shadow-soft:0 18px 48px rgba(0,0,0,.32); --shadow-card:0 16px 34px rgba(0,0,0,.28); }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Segoe UI, sans-serif; background:linear-gradient(180deg,var(--bg-grad-1) 0%,var(--bg-grad-2) 100%); color:var(--ink); transition:background .2s ease,color .2s ease; }
+    .wrap { max-width:1400px; margin:0 auto; padding:24px; }
+    h1,h2,h3 { margin:0 0 12px; }
+    .hero { background:var(--card); border:1px solid var(--line); border-radius:20px; padding:24px; margin-bottom:20px; box-shadow:var(--shadow-soft); }
+    .layout { display:grid; grid-template-columns:240px 1fr; gap:20px; align-items:start; }
+    .grid { display:grid; grid-template-columns: 360px 1fr; gap:20px; align-items:start; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:18px; box-shadow:var(--shadow-card); }
+    label { display:block; font-size:13px; color:var(--muted); margin:10px 0 6px; }
+    input, select, textarea, button { width:100%; border-radius:12px; border:1px solid var(--line); padding:10px 12px; font:inherit; }
+    input, select, textarea { background:var(--input-bg); color:var(--ink); }
+    textarea { min-height:78px; resize:vertical; }
+    button { cursor:pointer; background:var(--accent); color:white; border:none; font-weight:600; }
+    button.secondary { background:var(--accent-2); color:#241b0f; }
+    button.danger { background:var(--danger); }
+    table { width:100%; border-collapse:collapse; font-size:14px; }
+    th, td { padding:10px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+    th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    .badge { display:inline-block; padding:4px 8px; border-radius:999px; font-size:12px; font-weight:700; }
+    .ok { background:#dff3ea; color:#1e6b4e; }
+    .off { background:#f7dddd; color:#8a2f2f; }
+    .muted { color:var(--muted); }
+    .flash { margin:0 0 16px; padding:12px 14px; border-radius:12px; background:var(--flash-bg); border:1px solid var(--flash-line); }
+    .stack { display:grid; gap:10px; }
+    .inline { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .actions { display:flex; gap:8px; }
+    .actions form { display:inline-block; }
+    .small { font-size:12px; color:var(--muted); }
+    .toolbar { display:flex; justify-content:space-between; gap:12px; align-items:center; }
+    .hero a { color:var(--accent); font-weight:700; text-decoration:none; }
+    .sidebar { position:sticky; top:16px; display:grid; gap:10px; }
+    .side-link { display:block; padding:12px 14px; border-radius:14px; background:var(--card); border:1px solid var(--line); color:var(--ink); text-decoration:none; font-weight:700; }
+    .content { display:grid; gap:20px; }
+    .summary { display:grid; grid-template-columns:repeat(4, 1fr); gap:14px; }
+    .metric { padding:16px; border-radius:16px; border:1px solid var(--line); background:var(--surface); }
+    .metric h3 { margin:8px 0 2px; font-size:28px; }
+    .pill { display:inline-block; padding:5px 10px; border-radius:999px; background:var(--surface-2); font-size:12px; font-weight:700; color:var(--ink); }
+    .section-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    .three { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }
+    .subnav { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+    .subnav a { padding:8px 12px; border-radius:999px; background:var(--surface-2); color:var(--ink); text-decoration:none; font-size:13px; font-weight:700; }
+    .mini-card { background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:14px; }
+    .preview-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; margin-top:18px; }
+    .preview-card { background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:14px; white-space:pre-wrap; font-size:13px; line-height:1.45; }
+    .side-link.active { background:color-mix(in srgb, var(--accent) 16%, var(--card)); border-color:color-mix(in srgb, var(--accent) 42%, var(--line)); color:var(--ink); }
+    .theme-toggle { padding:10px 14px; border-radius:999px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; font-weight:700; }
+    .telegram-preview { background:linear-gradient(180deg,var(--preview-bg-1) 0%,var(--preview-bg-2) 100%); border:1px solid var(--preview-line); border-radius:18px; padding:16px; min-height:180px; }
+    .telegram-bubble { background:var(--bubble-bg); color:var(--bubble-ink); border-radius:18px 18px 18px 6px; padding:12px 14px; box-shadow:0 4px 12px rgba(0,0,0,.12); }
+    .pager { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:14px 0; }
+    .pager a { text-decoration:none; color:var(--accent); font-weight:700; }
+    .toolbar-right { display:flex; gap:10px; align-items:center; }
+    body.dark .hero { background:linear-gradient(180deg, rgba(16,25,23,.95) 0%, rgba(15,23,21,.9) 100%); }
+    body.dark .card { background:linear-gradient(180deg, rgba(17,26,24,.98) 0%, rgba(15,22,21,.95) 100%); }
+    body.dark .side-link { background:linear-gradient(180deg, rgba(18,28,26,.96) 0%, rgba(15,23,21,.94) 100%); }
+    body.dark .side-link.active { background:linear-gradient(180deg, rgba(26,56,49,.98) 0%, rgba(19,44,39,.98) 100%); color:#f7f1e7; border-color:#3d665c; box-shadow:0 10px 24px rgba(0,0,0,.22); }
+    body.dark .metric { background:linear-gradient(180deg, rgba(24,36,33,.98) 0%, rgba(19,30,28,.96) 100%); }
+    body.dark .preview-card { background:linear-gradient(180deg, rgba(20,31,29,.98) 0%, rgba(18,28,26,.96) 100%); }
+    body.dark .mini-card { background:linear-gradient(180deg, rgba(21,32,29,.98) 0%, rgba(18,29,27,.96) 100%); }
+    body.dark .subnav a { background:linear-gradient(180deg, rgba(31,45,41,.96) 0%, rgba(26,37,35,.96) 100%); color:#f7f1e7; border:1px solid #314541; }
+    body.dark .theme-toggle { background:linear-gradient(180deg, rgba(20,31,29,.98) 0%, rgba(16,25,23,.98) 100%); }
+    body.dark .flash { color:#dff7ea; }
+    body.dark .pill { background:#243631; color:#dbf8ec; }
+    body.dark .ok { background:#173a30; color:#92efc9; }
+    body.dark .off { background:#432421; color:#ffb7b0; }
+    body.dark button { box-shadow:0 10px 24px rgba(0,0,0,.18); }
+    body.dark button.secondary { color:#2d1c08; }
+    body.dark input::placeholder, body.dark textarea::placeholder { color:#7f938a; }
+    body.dark .telegram-bubble { border:1px solid rgba(255,255,255,.06); }
+    @media (max-width: 1100px) { .layout, .grid, .section-grid, .summary, .three, .preview-grid { grid-template-columns:1fr; } .sidebar { position:static; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <div class="toolbar">
+        <div>
+          <h1>Panel de Comandos</h1>
+          <p class="muted">Aquí puedes gestionar catálogo, info visible, precios, estados y paquetes de compra sin tocar Python.</p>
+        </div>
+        <div class="toolbar-right">
+          <button class="theme-toggle" type="button" onclick="toggleTheme()">Tema</button>
+          <a href="{{ url_for('panel_logout') }}">Cerrar sesión</a>
+        </div>
+      </div>
+      {% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+      <p class="small">Ruta local sugerida: <code>http://127.0.0.1:8080/admin/panel</code></p>
+      <div class="subnav">
+        <a href="{{ url_for('admin_panel', section='resumen') }}">Resumen</a>
+        <a href="{{ url_for('admin_panel', section='categorias') }}">Categorías</a>
+        <a href="{{ url_for('admin_panel', section='comandos') }}">Comandos</a>
+        <a href="{{ url_for('admin_panel', section='buy') }}">/buy</a>
+        <a href="{{ url_for('admin_panel', section='usuarios') }}">Usuarios</a>
+        <a href="{{ url_for('admin_panel', section='vendedores') }}">Vendedores</a>
+        <a href="{{ url_for('admin_panel', section='ajustes') }}">Ajustes</a>
+      </div>
+    </div>
+    <div class="layout">
+      <div class="sidebar">
+        <a class="side-link {% if active_section == 'resumen' %}active{% endif %}" href="{{ url_for('admin_panel', section='resumen') }}">Resumen</a>
+        <a class="side-link {% if active_section == 'categorias' %}active{% endif %}" href="{{ url_for('admin_panel', section='categorias') }}">Categorías</a>
+        <a class="side-link {% if active_section == 'comandos' %}active{% endif %}" href="{{ url_for('admin_panel', section='comandos') }}">Comandos</a>
+        <a class="side-link {% if active_section == 'buy' %}active{% endif %}" href="{{ url_for('admin_panel', section='buy') }}">Paquetes /buy</a>
+        <a class="side-link {% if active_section == 'usuarios' %}active{% endif %}" href="{{ url_for('admin_panel', section='usuarios') }}">Usuarios</a>
+        <a class="side-link {% if active_section == 'vendedores' %}active{% endif %}" href="{{ url_for('admin_panel', section='vendedores') }}">Vendedores</a>
+        <a class="side-link {% if active_section == 'ajustes' %}active{% endif %}" href="{{ url_for('admin_panel', section='ajustes') }}">Ajustes Visuales</a>
+        <a class="side-link {% if active_section == 'solicitudes' %}active{% endif %}" href="{{ url_for('admin_panel', section='solicitudes') }}">Solicitudes</a>
+        <a class="side-link {% if active_section == 'herramientas' %}active{% endif %}" href="{{ url_for('admin_panel', section='herramientas') }}">Herramientas</a>
+        <a class="side-link {% if active_section == 'estadisticas' %}active{% endif %}" href="{{ url_for('admin_panel', section='estadisticas') }}">Estadísticas</a>
+      </div>
+      <div class="content">
+      {% if active_section == 'resumen' %}
+      <div id="sec-resumen" class="card">
+        <h2>Resumen</h2>
+        <div class="summary">
+          <div class="metric"><span class="pill">Categorías</span><h3>{{ categories|length }}</h3><div class="small">Bloques del catálogo</div></div>
+          <div class="metric"><span class="pill">Comandos</span><h3>{{ commands|length }}</h3><div class="small">Total registrados</div></div>
+          <div class="metric"><span class="pill">Activos</span><h3>{{ commands|selectattr('is_active')|list|length }}</h3><div class="small">Disponibles para uso</div></div>
+          <div class="metric"><span class="pill">Paquetes</span><h3>{{ buy_packages|length }}</h3><div class="small">Líneas para /buy</div></div>
+        </div>
+        <div class="preview-grid">
+          <div class="preview-card">
+            <strong>Preview /start</strong>
+            <div class="telegram-preview"><div class="telegram-bubble">{{ previews.start }}</div></div>
+          </div>
+          <div class="preview-card">
+            <strong>Preview /buy</strong>
+            <div class="telegram-preview"><div class="telegram-bubble">{{ previews.buy }}</div></div>
+          </div>
+          <div class="preview-card">
+            <strong>Preview /cmds</strong>
+            <div class="telegram-preview"><div class="telegram-bubble">{{ previews.cmds }}</div></div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+      {% if active_section == 'usuarios' %}
+      <div class="stack">
+      <div class="card">
+        <h2>Usuarios</h2>
+        <form method="get" action="{{ url_for('admin_panel') }}" class="inline" style="margin-bottom:14px;">
+          <input type="hidden" name="section" value="usuarios">
+          <input name="uq" value="{{ user_q }}" placeholder="Buscar por ID, rol, web o wsp">
+          <select name="ustatus">
+            <option value="">Todos los estados</option>
+            <option value="ACTIVO" {% if user_status == 'ACTIVO' %}selected{% endif %}>ACTIVO</option>
+            <option value="BANEADO" {% if user_status == 'BANEADO' %}selected{% endif %}>BANEADO</option>
+          </select>
+          <select name="uplan">
+            <option value="">Todos los planes</option>
+            <option value="FREE" {% if user_plan == 'FREE' %}selected{% endif %}>FREE</option>
+            <option value="BASICO" {% if user_plan == 'BASICO' %}selected{% endif %}>BASICO</option>
+            <option value="STANDARD" {% if user_plan == 'STANDARD' %}selected{% endif %}>STANDARD</option>
+            <option value="PREMIUM" {% if user_plan == 'PREMIUM' %}selected{% endif %}>PREMIUM</option>
+          </select>
+          <button type="submit">Filtrar</button>
+        </form>
+        <table>
+          <thead><tr><th>ID</th><th>Perfil</th><th>Estado actual</th><th>Editar</th></tr></thead>
+          <tbody>
+            {% if admin_users %}
+              {% for user in admin_users %}
+              <tr>
+                <td><strong>{{ user.id_tg }}</strong></td>
+                <td>
+                  <div><strong>{{ user.rol_tg or 'FREE' }}</strong></div>
+                  <div class="small">WEB: {{ user.user_web or '—' }} | WSP: {{ user.number_wsp or '—' }}</div>
+                </td>
+                <td>
+                  <div>Plan: {{ user.plan }}</div>
+                  <div>Estado: {{ user.estado }}</div>
+                  <div>Créditos: {{ user.creditos }}</div>
+                  <div>Antispam: {{ user.antispam }}</div>
+                </td>
+                <td>
+                  <form method="post" action="{{ url_for('admin_save_user') }}">
+                    <input type="hidden" name="id_tg" value="{{ user.id_tg }}">
+                    <div class="inline">
+                      <input name="creditos" type="number" min="0" value="{{ user.creditos or 0 }}">
+                      <input name="antispam" type="number" min="0" value="{{ user.antispam or 0 }}">
+                    </div>
+                    <div class="inline">
+                      <select name="plan">
+                        <option value="FREE" {% if user.plan == 'FREE' %}selected{% endif %}>FREE</option>
+                        <option value="BASICO" {% if user.plan == 'BASICO' %}selected{% endif %}>BASICO</option>
+                        <option value="STANDARD" {% if user.plan == 'STANDARD' %}selected{% endif %}>STANDARD</option>
+                        <option value="PREMIUM" {% if user.plan == 'PREMIUM' %}selected{% endif %}>PREMIUM</option>
+                      </select>
+                      <select name="estado">
+                        <option value="ACTIVO" {% if user.estado == 'ACTIVO' %}selected{% endif %}>ACTIVO</option>
+                        <option value="BANEADO" {% if user.estado == 'BANEADO' %}selected{% endif %}>BANEADO</option>
+                      </select>
+                    </div>
+                    <button type="submit">Guardar usuario</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="4">No se encontraron usuarios con ese filtro.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      </div>
+      {% endif %}
+      {% if active_section == 'vendedores' %}
+      <div class="stack">
+      <div class="card">
+        <h2>Vendedores</h2>
+        <form method="get" action="{{ url_for('admin_panel') }}" class="inline" style="margin-bottom:14px;">
+          <input type="hidden" name="section" value="vendedores">
+          <input name="vq" value="{{ vendor_q }}" placeholder="Buscar por ID vendedor">
+          <input name="vendor" value="{{ selected_vendor }}" placeholder="Ver detalle exacto de vendedor">
+          <button type="submit">Filtrar</button>
+        </form>
+        <div class="summary">
+          <div class="metric"><span class="pill">Vendedores</span><h3>{{ vendor_summary|length }}</h3><div class="small">Con ventas registradas</div></div>
+          <div class="metric"><span class="pill">Ventas</span><h3>{{ vendor_total_sales }}</h3><div class="small">Total en ranking actual</div></div>
+          <div class="metric"><span class="pill">Detalle</span><h3>{{ vendor_detail|length }}</h3><div class="small">Registros del vendedor elegido</div></div>
+          <div class="metric"><span class="pill">Último</span><h3>{{ selected_vendor or '—' }}</h3><div class="small">Vendedor en foco</div></div>
+        </div>
+      </div>
+      <div class="section-grid">
+      <div class="card">
+        <h2>Ranking</h2>
+        <table>
+          <thead><tr><th>Vendedor</th><th>Ventas</th><th>Última venta</th><th>Ver</th></tr></thead>
+          <tbody>
+            {% if vendor_summary %}
+              {% for item in vendor_summary %}
+              <tr>
+                <td><strong>{{ item.vendedor }}</strong></td>
+                <td>{{ item.total_ventas }}</td>
+                <td>{{ item.ultima_venta or '—' }}</td>
+                <td><a href="{{ url_for('admin_panel', section='vendedores', vendor=item.vendedor, vq=vendor_q) }}">Abrir</a></td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="4">No hay ventas registradas para ese filtro.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Detalle de ventas</h2>
+        <div class="small" style="margin-bottom:12px;">Mostrando ventas para: <strong>{{ selected_vendor or '—' }}</strong></div>
+        <table>
+          <thead><tr><th>Cliente</th><th>Cantidad</th><th>Fecha</th></tr></thead>
+          <tbody>
+            {% if vendor_detail %}
+              {% for row in vendor_detail %}
+              <tr>
+                <td>{{ row.ID_TG }}</td>
+                <td>{{ row.COMPRO or '—' }}</td>
+                <td>{{ row.FECHA or '—' }}</td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="3">Selecciona un vendedor para ver detalle.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      </div>
+      </div>
+      {% endif %}
+      {% if active_section == 'solicitudes' %}
+      <div class="stack">
+      <div class="card">
+        <h2>Vista de solicitudes</h2>
+        <form method="get" action="{{ url_for('admin_panel') }}" class="inline" style="margin-bottom:14px;">
+          <input type="hidden" name="section" value="solicitudes">
+          <input name="rq" value="{{ request_q }}" placeholder="Buscar por id, usuario, comando o nota">
+          <select name="rstatus">
+            <option value="">Todos los estados</option>
+            <option value="pending" {% if request_status == 'pending' %}selected{% endif %}>Pendientes</option>
+            <option value="resolved" {% if request_status == 'resolved' %}selected{% endif %}>Resueltas</option>
+            <option value="cancelled" {% if request_status == 'cancelled' %}selected{% endif %}>Canceladas</option>
+            <option value="failed" {% if request_status == 'failed' %}selected{% endif %}>Fallidas</option>
+          </select>
+          <select name="rcommand">
+            <option value="">Todos los comandos</option>
+            {% for slug in request_command_options %}
+            <option value="{{ slug }}" {% if request_command == slug %}selected{% endif %}>/{{ slug }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit">Filtrar</button>
+        </form>
+        <div class="summary">
+          <div class="metric"><span class="pill">Pendientes</span><h3>{{ request_counts.pending }}</h3><div class="small">Sin resolver</div></div>
+          <div class="metric"><span class="pill">Resueltas</span><h3>{{ request_counts.resolved }}</h3><div class="small">Atendidas con envío</div></div>
+          <div class="metric"><span class="pill">Canceladas</span><h3>{{ request_counts.cancelled }}</h3><div class="small">Cerradas sin cobro</div></div>
+          <div class="metric"><span class="pill">Fallidas</span><h3>{{ request_counts.failed }}</h3><div class="small">Sin resultados o error</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="toolbar">
+          <div>
+            <h2>Solicitudes pendientes</h2>
+            <p class="small">Aquí ves lo que sigue sin respuesta en el flujo manual del bot.</p>
+          </div>
+          <div class="pill">{{ pending_requests|length }} pendientes</div>
+        </div>
+        <table>
+          <thead><tr><th>ID</th><th>Usuario</th><th>Comando</th><th>Costo</th><th>Estado</th><th>Referencia admin</th></tr></thead>
+          <tbody>
+            {% if filtered_pending_requests %}
+              {% for req in filtered_pending_requests %}
+              <tr>
+                <td><strong>#{{ req.id }}</strong></td>
+                <td>
+                  <strong>{% if req.username %}@{{ req.username }}{% else %}{{ req.user_id }}{% endif %}</strong>
+                  <div class="small">ID: {{ req.user_id }}</div>
+                </td>
+                <td>/{{ req.command }}<div class="small">{{ req.payload or '—' }}</div></td>
+                <td>{{ req.cost }}</td>
+                <td><span class="badge {% if req.status == 'pending' %}off{% else %}ok{% endif %}">{{ req.status }}</span><div class="small">{{ req.created_at or '—' }}</div></td>
+                <td>{{ req.admin_msg_id or '—' }}</td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="6">No hay solicitudes pendientes.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="toolbar">
+          <div>
+            <h2>Historial reciente</h2>
+            <p class="small">Resueltas, canceladas o fallidas con nota y fecha de cierre.</p>
+          </div>
+          <div class="pill">{{ recent_requests|length }} registros</div>
+        </div>
+        <table>
+          <thead><tr><th>ID</th><th>Usuario</th><th>Comando</th><th>Estado</th><th>Nota</th><th>Cierre</th></tr></thead>
+          <tbody>
+            {% if filtered_recent_requests %}
+              {% for req in filtered_recent_requests %}
+              <tr>
+                <td><strong>#{{ req.id }}</strong></td>
+                <td>
+                  <strong>{% if req.username %}@{{ req.username }}{% else %}{{ req.user_id }}{% endif %}</strong>
+                  <div class="small">ID: {{ req.user_id }}</div>
+                </td>
+                <td>/{{ req.command }}<div class="small">{{ req.payload or '—' }}</div></td>
+                <td><span class="badge {% if req.status == 'resolved' %}ok{% elif req.status == 'pending' %}off{% else %}pill{% endif %}">{{ req.status }}</span></td>
+                <td>{{ req.resolution_note or '—' }}</td>
+                <td>{{ req.resolved_at or '—' }}<div class="small">Admin: {{ req.resolved_by or '—' }}</div></td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="6">No hay historial todavía.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Plantillas rápidas</h2>
+        <div class="three">
+          <div class="mini-card"><strong>/templates</strong><div class="small">Lista las plantillas disponibles en Telegram.</div></div>
+          <div class="mini-card"><strong>/rquick 15 nodata</strong><div class="small">Responde usando plantilla rápida.</div></div>
+          <div class="mini-card"><strong>/close 15 motivo</strong><div class="small">Cierra sin cobrar.</div></div>
+          <div class="mini-card"><strong>/fail 15 motivo</strong><div class="small">Marca fallida sin cobrar.</div></div>
+          <div class="mini-card"><strong>/pending</strong><div class="small">Ver pendientes recientes en Telegram.</div></div>
+          <div class="mini-card"><strong>/requestlog 20</strong><div class="small">Historial rápido desde Telegram.</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Editar plantillas</h2>
+        <table>
+          <thead><tr><th>Clave</th><th>Texto</th><th>Cobro</th><th>Guardar</th></tr></thead>
+          <tbody>
+            {% for tpl in request_templates %}
+            <tr>
+              <td><strong>{{ tpl.key }}</strong></td>
+              <td>
+                <form method="post" action="{{ url_for('admin_save_request_template') }}">
+                  <input type="hidden" name="key" value="{{ tpl.key }}">
+                  <textarea name="text" required>{{ tpl.text }}</textarea>
+              </td>
+              <td>
+                  <select name="billable">
+                    <option value="0" {% if not tpl.billable %}selected{% endif %}>Sin cobro</option>
+                    <option value="1" {% if tpl.billable %}selected{% endif %}>Con cobro</option>
+                  </select>
+              </td>
+              <td><button type="submit">Guardar</button></form></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      </div>
+      {% endif %}
+      {% if active_section == 'categorias' or active_section == 'comandos' %}
+      <div class="section-grid" {% if active_section in ['buy', 'ajustes'] %}style="grid-template-columns:1fr;"{% endif %}>
+      <div class="stack" id="sec-categorias">
+        {% if active_section == 'categorias' %}
+        <div class="card">
+          <h2>Nueva Categoría</h2>
+          <form method="post" action="{{ url_for('admin_save_category') }}">
+            <label>Slug</label>
+            <input name="slug" placeholder="reniec-premium" required>
+            <label>Nombre</label>
+            <input name="name" placeholder="RENIEC PREMIUM" required>
+            <label>Descripción</label>
+            <textarea name="description" placeholder="Descripción interna"></textarea>
+            <div class="inline">
+              <div>
+                <label>Orden</label>
+                <input name="sort_order" type="number" value="0">
+              </div>
+              <div>
+                <label>Estado</label>
+                <select name="is_active">
+                  <option value="1">Activa</option>
+                  <option value="0">Inactiva</option>
+                </select>
+              </div>
+            </div>
+            <button type="submit">Guardar categoría</button>
+          </form>
+        </div>
+        {% endif %}
+        {% if active_section == 'comandos' %}
+        <div class="card">
+          <h2>Nuevo Comando</h2>
+          <form method="post" action="{{ url_for('admin_save_command') }}">
+            <label>Slug</label>
+            <input name="slug" placeholder="dni" required>
+            <label>Nombre visible</label>
+            <input name="name" placeholder="DNI" required>
+            <label>Categoría</label>
+            <select name="category_id">
+              <option value="">Sin categoría</option>
+              {% for cat in categories %}
+              <option value="{{ cat.id }}">{{ cat.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="inline">
+              <div>
+                <label>Costo</label>
+                <input name="cost" type="number" min="0" value="1" required>
+              </div>
+              <div>
+                <label>Orden</label>
+                <input name="sort_order" type="number" value="0">
+              </div>
+            </div>
+            <div class="inline">
+              <div>
+                <label>Estado</label>
+                <select name="is_active">
+                  <option value="1">Activo</option>
+                  <option value="0">Inactivo</option>
+                </select>
+              </div>
+              <div>
+                <label>Uso</label>
+                <input name="usage_hint" placeholder="/dni 12345678">
+              </div>
+            </div>
+            <label>INFO visible en /cmds</label>
+            <textarea name="description" placeholder="Texto que saldrá en INFO dentro del menú"></textarea>
+            <button class="secondary" type="submit">Guardar comando</button>
+          </form>
+          <p class="small">Si creas un comando aquí pero no existe su handler en Python, solo quedará catalogado; no ejecutará una lógica nueva por sí solo.</p>
+        </div>
+        {% endif %}
+      </div>
+      <div class="stack" id="sec-comandos">
+        {% if active_section == 'categorias' %}
+        <div class="card">
+          <h2>Categorías</h2>
+          <table>
+            <thead><tr><th>Slug</th><th>Nombre</th><th>Orden</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <tbody>
+              {% for cat in categories %}
+              <tr>
+                <td><strong>{{ cat.slug }}</strong><div class="small">{{ cat.description or '—' }}</div></td>
+                <td>{{ cat.name }}</td>
+                <td>{{ cat.sort_order }}</td>
+                <td>{% if cat.is_active %}<span class="badge ok">Activa</span>{% else %}<span class="badge off">Inactiva</span>{% endif %}</td>
+                <td>
+                  <form method="post" action="{{ url_for('admin_save_category') }}">
+                    <input type="hidden" name="original_slug" value="{{ cat.slug }}">
+                    <input type="hidden" name="slug" value="{{ cat.slug }}">
+                    <input type="hidden" name="name" value="{{ cat.name }}">
+                    <input type="hidden" name="description" value="{{ cat.description or '' }}">
+                    <input type="hidden" name="sort_order" value="{{ cat.sort_order }}">
+                    <input type="hidden" name="is_active" value="{{ 0 if cat.is_active else 1 }}">
+                    <button type="submit" class="{{ 'danger' if cat.is_active else 'secondary' }}">{{ 'Desactivar' if cat.is_active else 'Activar' }}</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+        {% if active_section == 'comandos' %}
+        <div class="card">
+          <h2>Comandos</h2>
+          <form method="get" action="{{ url_for('admin_panel') }}" class="inline" style="margin-bottom:14px;">
+            <input type="hidden" name="section" value="comandos">
+            <input name="q" value="{{ q }}" placeholder="Buscar por slug, nombre, uso o info">
+            <select name="category">
+              <option value="">Todas las categorías</option>
+              {% for cat in categories %}
+              <option value="{{ cat.slug }}" {% if category_filter == cat.slug %}selected{% endif %}>{{ cat.name }}</option>
+              {% endfor %}
+            </select>
+            <select name="status">
+              <option value="">Todos los estados</option>
+              <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Activos</option>
+              <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>Inactivos</option>
+            </select>
+            <button type="submit">Filtrar</button>
+          </form>
+          <div class="pager">
+            <div class="small">Mostrando {{ filtered_commands|length }} de {{ cmd_total }} resultados. Página {{ cmd_page }}/{{ cmd_total_pages }}</div>
+            <div>
+              {% if cmd_page > 1 %}
+              <a href="{{ url_for('admin_panel', section='comandos', q=q, category=category_filter, status=status_filter, page=cmd_page-1) }}">Anterior</a>
+              {% endif %}
+              {% if cmd_page < cmd_total_pages %}
+              <a href="{{ url_for('admin_panel', section='comandos', q=q, category=category_filter, status=status_filter, page=cmd_page+1) }}" style="margin-left:12px;">Siguiente</a>
+              {% endif %}
+            </div>
+          </div>
+          <table>
+            <thead><tr><th>Comando</th><th>Categoría</th><th>Costo</th><th>Estado</th><th>Editar</th></tr></thead>
+            <tbody>
+              {% for cmd in filtered_commands %}
+              <tr>
+                <td>
+                  <strong>/{{ cmd.slug }}</strong> · {{ cmd.name }}
+                  <div class="small">{{ cmd.description or cmd.usage_hint or '—' }}</div>
+                </td>
+                <td>{{ cmd.category_name or 'Sin categoría' }}</td>
+                <td>{{ cmd.cost }}</td>
+                <td>{% if cmd.is_active %}<span class="badge ok">Activo</span>{% else %}<span class="badge off">Inactivo</span>{% endif %}</td>
+                <td>
+                  <form method="post" action="{{ url_for('admin_save_command') }}">
+                    <input type="hidden" name="slug" value="{{ cmd.slug }}">
+                    <div class="inline">
+                      <input name="name" value="{{ cmd.name }}" required>
+                      <input name="cost" type="number" min="0" value="{{ cmd.cost }}" required>
+                    </div>
+                    <div class="inline">
+                      <select name="category_id">
+                        <option value="">Sin categoría</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat.id }}" {% if cmd.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+                        {% endfor %}
+                      </select>
+                      <select name="is_active">
+                        <option value="1" {% if cmd.is_active %}selected{% endif %}>Activo</option>
+                        <option value="0" {% if not cmd.is_active %}selected{% endif %}>Inactivo</option>
+                      </select>
+                    </div>
+                    <div class="inline">
+                      <input name="sort_order" type="number" value="{{ cmd.sort_order }}">
+                      <input name="usage_hint" value="{{ cmd.usage_hint or '' }}" placeholder="/cmd arg">
+                    </div>
+                    <label>INFO</label>
+                    <textarea name="description" placeholder="Texto mostrado en /cmds">{{ cmd.description or '' }}</textarea>
+                    <button type="submit">Guardar</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+              {% if not filtered_commands %}
+              <tr><td colspan="5">No hay comandos que coincidan con el filtro actual.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+      </div>
+      {% endif %}
+      {% if active_section == 'buy' or active_section == 'ajustes' %}
+      <div class="section-grid">
+        {% if active_section == 'buy' %}
+        <div class="card" id="sec-buy">
+          <h2>Paquetes de /buy</h2>
+          <form method="post" action="{{ url_for('admin_save_buy_package') }}">
+            <div class="inline">
+              <div>
+                <label>Tipo</label>
+                <select name="kind">
+                  <option value="credits">Créditos</option>
+                  <option value="days">Días</option>
+                </select>
+              </div>
+              <div>
+                <label>Grupo</label>
+                <input name="group_slug" placeholder="premium">
+              </div>
+            </div>
+            <div class="inline">
+              <div>
+                <label>Badge</label>
+                <input name="badge" placeholder="💎">
+              </div>
+              <div>
+                <label>Título</label>
+                <input name="title" placeholder="PREMIUM">
+              </div>
+            </div>
+            <div class="inline">
+              <div>
+                <label>Subtítulo</label>
+                <input name="subtitle" placeholder="5's">
+              </div>
+              <div>
+                <label>Orden</label>
+                <input name="sort_order" type="number" value="0">
+              </div>
+            </div>
+            <label>Línea</label>
+            <input name="line_text" placeholder="1500 + 200 Creditos ➩ 100 Soles">
+            <label>Estado</label>
+            <select name="is_active">
+              <option value="1">Activo</option>
+              <option value="0">Inactivo</option>
+            </select>
+            <button class="secondary" type="submit">Agregar paquete</button>
+          </form>
+          <table>
+            <thead><tr><th>Tipo</th><th>Grupo</th><th>Línea</th><th>Estado</th><th>Editar</th></tr></thead>
+            <tbody>
+              {% for pkg in buy_packages %}
+              <tr>
+                <td>{{ 'Créditos' if pkg.kind == 'credits' else 'Días' }}</td>
+                <td><strong>{{ pkg.badge }} {{ pkg.title }}</strong><div class="small">{{ pkg.subtitle or '—' }}</div></td>
+                <td>{{ pkg.line_text }}</td>
+                <td>{% if pkg.is_active %}<span class="badge ok">Activo</span>{% else %}<span class="badge off">Inactivo</span>{% endif %}</td>
+                <td>
+                  <form method="post" action="{{ url_for('admin_save_buy_package') }}">
+                    <input type="hidden" name="id" value="{{ pkg.id }}">
+                    <div class="inline">
+                      <select name="kind">
+                        <option value="credits" {% if pkg.kind == 'credits' %}selected{% endif %}>Créditos</option>
+                        <option value="days" {% if pkg.kind == 'days' %}selected{% endif %}>Días</option>
+                      </select>
+                      <input name="group_slug" value="{{ pkg.group_slug }}">
+                    </div>
+                    <div class="inline">
+                      <input name="badge" value="{{ pkg.badge }}">
+                      <input name="title" value="{{ pkg.title }}">
+                    </div>
+                    <div class="inline">
+                      <input name="subtitle" value="{{ pkg.subtitle or '' }}">
+                      <input name="sort_order" type="number" value="{{ pkg.sort_order }}">
+                    </div>
+                    <input name="line_text" value="{{ pkg.line_text }}">
+                    <select name="is_active">
+                      <option value="1" {% if pkg.is_active %}selected{% endif %}>Activo</option>
+                      <option value="0" {% if not pkg.is_active %}selected{% endif %}>Inactivo</option>
+                    </select>
+                    <button type="submit">Guardar</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+        {% if active_section == 'ajustes' %}
+        <div class="card" id="sec-ajustes">
+          <h2>Ajustes Visuales y Botones</h2>
+          <p class="small">Controla desde aquí imágenes y enlaces que usan `/start`, `/buy`, `/cmds`, `/cmdsadmin` y otras pantallas.</p>
+          <div class="three">
+            {% for key in ['BT_OWNER','OWNER_LINK','BT_CANAL','CANAL_LINK','BT_GRUPO','GRUPO_LINK','BT_SELLER','SELLER_LINK','BT_SELLER1','SELLER_LINK1','BT_SELLER2','SELLER_LINK2','BT_SELLER3','SELLER_LINK3','FT_BUY','FT_CMDS','FT_CMDSADMIN','FT_START'] %}
+            <form class="mini-card" method="post" action="{{ url_for('admin_save_setting') }}">
+              <input type="hidden" name="key" value="{{ key }}">
+              <label>{{ key }}</label>
+              <input name="value" value="{{ settings.get(key, '') }}" placeholder="{{ key }}">
+              <button type="submit">Guardar</button>
+            </form>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+        </div>
+        {% endif %}
+        {% if active_section == 'herramientas' %}
+        <div class="section-grid">
+          <div class="card">
+            <h2>Respaldo</h2>
+            <p class="small">Exporta o importa el catálogo completo del panel.</p>
+            <p><a href="{{ url_for('admin_export_panel') }}">Descargar respaldo JSON</a></p>
+            <form method="post" action="{{ url_for('admin_import_panel') }}" enctype="multipart/form-data">
+              <label>Importar archivo JSON</label>
+              <input type="file" name="backup_file" accept=".json,application/json" required>
+              <button type="submit">Importar respaldo</button>
+            </form>
+          </div>
+          <div class="card">
+            <h2>Acciones Masivas</h2>
+            <form method="post" action="{{ url_for('admin_bulk_commands') }}">
+              <label>Categoría</label>
+              <select name="category_slug">
+                <option value="">Todas</option>
+                {% for cat in categories %}
+                <option value="{{ cat.slug }}">{{ cat.name }}</option>
+                {% endfor %}
+              </select>
+              <label>Estado actual</label>
+              <select name="current_status">
+                <option value="">Todos</option>
+                <option value="active">Solo activos</option>
+                <option value="inactive">Solo inactivos</option>
+              </select>
+              <label>Acción de estado</label>
+              <select name="status_action">
+                <option value="">No cambiar estado</option>
+                <option value="activate">Activar</option>
+                <option value="deactivate">Desactivar</option>
+              </select>
+              <label>Operación de costo</label>
+              <select name="cost_action">
+                <option value="">No cambiar costo</option>
+                <option value="sum">Sumar</option>
+                <option value="set">Igualar</option>
+              </select>
+              <label>Valor</label>
+              <input name="cost_value" type="number" value="0">
+              <button type="submit">Aplicar acción masiva</button>
+            </form>
+          </div>
+        </div>
+        {% endif %}
+        {% if active_section == 'estadisticas' %}
+        <div class="card">
+          <h2>Dashboard</h2>
+          <div class="summary">
+            <div class="metric"><span class="pill">Usuarios</span><h3>{{ dashboard.usuarios }}</h3><div class="small">Registrados</div></div>
+            <div class="metric"><span class="pill">Consultas</span><h3>{{ dashboard.consultas }}</h3><div class="small">Historial total</div></div>
+            <div class="metric"><span class="pill">Pendientes</span><h3>{{ dashboard.pendientes }}</h3><div class="small">Solicitudes sin resolver</div></div>
+            <div class="metric"><span class="pill">Ventas</span><h3>{{ dashboard.ventas }}</h3><div class="small">Registros en compras</div></div>
+          </div>
+          <div class="card" style="margin-top:18px;">
+            <h3>Top comandos</h3>
+            <table>
+              <thead><tr><th>Comando</th><th>Total</th></tr></thead>
+              <tbody>
+                {% for item in dashboard.top_comandos %}
+                <tr><td>{{ item.consulta }}</td><td>{{ item.total }}</td></tr>
+                {% endfor %}
+                {% if not dashboard.top_comandos %}
+                <tr><td colspan="2">Sin datos aún.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</body>
+<script>
+    const storedTheme = localStorage.getItem('spidersyn-panel-theme');
+    if (storedTheme === 'dark') document.body.classList.add('dark');
+  function toggleTheme() {
+      document.body.classList.toggle('dark');
+      localStorage.setItem('spidersyn-panel-theme', document.body.classList.contains('dark') ? 'dark' : 'light');
+    }
+    if ("{{ active_section }}" === "solicitudes") {
+      setTimeout(() => window.location.reload(), 15000);
+    }
+  </script>
+</html>
