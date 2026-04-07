@@ -62,6 +62,8 @@ def init_db():
             status TEXT,
             admin_msg_id INTEGER,
             cost INTEGER DEFAULT 1,
+            charged INTEGER DEFAULT 0,
+            delivery_count INTEGER DEFAULT 0,
             created_at TEXT,
             resolved_at TEXT,
             resolved_by INTEGER,
@@ -85,6 +87,10 @@ def init_db():
         c.execute("ALTER TABLE requests ADD COLUMN payload TEXT")
     if "created_at" not in columns:
         c.execute("ALTER TABLE requests ADD COLUMN created_at TEXT")
+    if "charged" not in columns:
+        c.execute("ALTER TABLE requests ADD COLUMN charged INTEGER DEFAULT 0")
+    if "delivery_count" not in columns:
+        c.execute("ALTER TABLE requests ADD COLUMN delivery_count INTEGER DEFAULT 0")
     if "resolved_at" not in columns:
         c.execute("ALTER TABLE requests ADD COLUMN resolved_at TEXT")
     if "resolved_by" not in columns:
@@ -110,7 +116,7 @@ def init_db():
 def _get_request_by_id(cursor, request_id: int):
     cursor.execute(
         """
-        SELECT id, user_id, username, command, payload, status, admin_msg_id, cost,
+        SELECT id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count,
                created_at, resolved_at, resolved_by, resolution_note
         FROM requests
         WHERE id=?
@@ -123,7 +129,7 @@ def _get_request_by_id(cursor, request_id: int):
 def _get_request_by_admin_message(cursor, admin_msg_id: int):
     cursor.execute(
         """
-        SELECT id, user_id, username, command, payload, status, admin_msg_id, cost,
+        SELECT id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count,
                created_at, resolved_at, resolved_by, resolution_note
         FROM requests
         WHERE admin_msg_id=?
@@ -200,6 +206,78 @@ def _update_request_status(cursor, request_id: int, status: str, admin_id: int |
     )
 
 
+def _append_note(previous: str | None, note: str) -> str:
+    clean_note = (note or "").strip()
+    if not clean_note:
+        return (previous or "").strip()
+    stamped = f"[{now_iso()}] {clean_note}"
+    previous_clean = (previous or "").strip()
+    if not previous_clean:
+        return stamped
+    return f"{previous_clean}\n{stamped}"
+
+
+def _mark_request_delivery(cursor, request_id: int, admin_id: int | None, note: str, *, charged: int | None = None, resolved: bool = False):
+    row = _get_request_by_id(cursor, request_id)
+    if not row:
+        return
+    (
+        _id,
+        _user_id,
+        _username,
+        _command,
+        _payload,
+        _status,
+        _admin_msg_id,
+        _cost,
+        current_charged,
+        _delivery_count,
+        _created_at,
+        _resolved_at,
+        _resolved_by,
+        resolution_note,
+    ) = row
+    final_charged = current_charged if charged is None else charged
+    final_note = _append_note(resolution_note, note)
+    if resolved:
+        cursor.execute(
+            """
+            UPDATE requests
+            SET status = 'resolved',
+                charged = ?,
+                delivery_count = COALESCE(delivery_count, 0) + 1,
+                resolved_at = ?,
+                resolved_by = ?,
+                resolution_note = ?
+            WHERE id = ?
+            """,
+            (final_charged, now_iso(), admin_id, final_note, request_id),
+        )
+        return
+    cursor.execute(
+        """
+        UPDATE requests
+        SET status = 'pending',
+            charged = ?,
+            delivery_count = COALESCE(delivery_count, 0) + 1,
+            resolution_note = ?
+        WHERE id = ?
+        """,
+        (final_charged, final_note, request_id),
+    )
+
+
+def _maybe_charge_request(cursor, user_id: int, cost: int, already_charged: int) -> int:
+    if already_charged:
+        return 1
+    from comandos.utils import descontar_creditos, verificar_usuario
+
+    valido, info = verificar_usuario(str(user_id))
+    if valido and not info.get("ilimitado", False):
+        descontar_creditos(str(user_id), cost)
+    return 1
+
+
 def _build_request_keyboard(request_id: int, status: str = "pending"):
     status = (status or "pending").strip().lower()
     if status == "pending":
@@ -210,9 +288,10 @@ def _build_request_keyboard(request_id: int, status: str = "pending"):
             ],
             [
                 InlineKeyboardButton("Plantillas", callback_data=f"adminreq:templates:{request_id}"),
-                InlineKeyboardButton("Cerrar", callback_data=f"adminreq:close:{request_id}"),
+                InlineKeyboardButton("Finalizar", callback_data=f"adminreq:done:{request_id}"),
             ],
             [
+                InlineKeyboardButton("Cerrar", callback_data=f"adminreq:close:{request_id}"),
                 InlineKeyboardButton("Fallida", callback_data=f"adminreq:fail:{request_id}"),
             ],
         ]
@@ -252,27 +331,23 @@ async def _send_request_reply(context: ContextTypes.DEFAULT_TYPE, admin_id: int,
         conn.close()
         return False, "Solicitud no encontrada."
 
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
     if status != "pending":
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
 
     if _should_charge(reply_text):
-        from comandos.utils import descontar_creditos, verificar_usuario
-
-        valido, info = verificar_usuario(str(user_id))
-        if valido and not info.get("ilimitado", False):
-            descontar_creditos(str(user_id), cost)
+        charged = _maybe_charge_request(c, user_id, cost, int(charged or 0))
 
     await context.bot.send_message(
         chat_id=user_id,
         text=f"📬 Respuesta a tu solicitud #{request_id}\n📌 Comando: /{command}\n\n{reply_text}",
     )
-    _update_request_status(c, request_id, "resolved", admin_id, reply_text)
+    _mark_request_delivery(c, request_id, admin_id, reply_text, charged=int(charged or 0), resolved=False)
     conn.commit()
     conn.close()
     await _update_admin_message_markup(context, request_id)
-    return True, f"Respuesta enviada a {_target_label(username, user_id)} para la solicitud #{request_id} ✅"
+    return True, f"Respuesta enviada a {_target_label(username, user_id)} para la solicitud #{request_id} ✅ Sigue abierta; usa /done {request_id} cuando termines."
 
 
 async def _send_request_reply_free(context: ContextTypes.DEFAULT_TYPE, admin_id: int, request_id: int, reply_text: str):
@@ -282,7 +357,7 @@ async def _send_request_reply_free(context: ContextTypes.DEFAULT_TYPE, admin_id:
     if not row:
         conn.close()
         return False, "Solicitud no encontrada."
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
     if status != "pending":
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
@@ -290,11 +365,36 @@ async def _send_request_reply_free(context: ContextTypes.DEFAULT_TYPE, admin_id:
         chat_id=user_id,
         text=f"📬 Respuesta a tu solicitud #{request_id}\n📌 Comando: /{command}\n\n{reply_text}\n\nNo se descontaron créditos.",
     )
-    _update_request_status(c, request_id, "resolved", admin_id, f"[sin_cobro] {reply_text}")
+    _mark_request_delivery(c, request_id, admin_id, f"[sin_cobro] {reply_text}", charged=int(charged or 0), resolved=False)
     conn.commit()
     conn.close()
     await _update_admin_message_markup(context, request_id)
-    return True, f"Respuesta sin cobro enviada a {_target_label(username, user_id)} para la solicitud #{request_id} ✅"
+    return True, f"Respuesta sin cobro enviada a {_target_label(username, user_id)} para la solicitud #{request_id} ✅ Sigue abierta; usa /done {request_id} cuando termines."
+
+
+async def _done_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int, request_id: int, note: str):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    row = _get_request_by_id(c, request_id)
+    if not row:
+        conn.close()
+        return False, "Solicitud no encontrada."
+
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
+    if status != "pending":
+        conn.close()
+        return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
+
+    final_note = note or "✅ Tu solicitud fue finalizada por el administrador."
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=f"📌 Solicitud #{request_id} finalizada.\n📌 Comando: /{command}\n\n{final_note}",
+    )
+    _update_request_status(c, request_id, "resolved", admin_id, _append_note(resolution_note, final_note))
+    conn.commit()
+    conn.close()
+    await _update_admin_message_markup(context, request_id)
+    return True, f"Solicitud #{request_id} finalizada ✅"
 
 
 async def _close_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int, request_id: int, note: str):
@@ -305,7 +405,7 @@ async def _close_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int
         conn.close()
         return False, "Solicitud no encontrada."
 
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
     if status != "pending":
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
@@ -330,7 +430,7 @@ async def _fail_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int,
         conn.close()
         return False, "Solicitud no encontrada."
 
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
     if status != "pending":
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
@@ -358,27 +458,23 @@ async def _send_template_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int
         conn.close()
         return False, "Solicitud no encontrada."
 
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
     if status != "pending":
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
 
     if _should_charge(template_text, template_key):
-        from comandos.utils import descontar_creditos, verificar_usuario
-
-        valido, info = verificar_usuario(str(user_id))
-        if valido and not info.get("ilimitado", False):
-            descontar_creditos(str(user_id), cost)
+        charged = _maybe_charge_request(c, user_id, cost, int(charged or 0))
 
     await context.bot.send_message(
         chat_id=user_id,
         text=f"📬 Respuesta a tu solicitud #{request_id}\n📌 Comando: /{command}\n\n{template_text}",
     )
-    _update_request_status(c, request_id, "resolved", admin_id, f"[template:{template_key}] {template_text}")
+    _mark_request_delivery(c, request_id, admin_id, f"[template:{template_key}] {template_text}", charged=int(charged or 0), resolved=False)
     conn.commit()
     conn.close()
     await _update_admin_message_markup(context, request_id)
-    return True, f"Plantilla {template_key} enviada para la solicitud #{request_id} ✅"
+    return True, f"Plantilla {template_key} enviada para la solicitud #{request_id} ✅ Sigue abierta; usa /done {request_id} cuando termines."
 
 
 async def _reopen_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int, request_id: int):
@@ -388,7 +484,7 @@ async def _reopen_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: in
     if not row:
         conn.close()
         return False, "Solicitud no encontrada."
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
     if status == "pending":
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está pendiente."
@@ -413,7 +509,7 @@ async def _update_admin_message_markup(context: ContextTypes.DEFAULT_TYPE, reque
     conn.close()
     if not row:
         return
-    _, _, _, _, _, status, admin_msg_id, _, _, _, _, _ = row
+    _, _, _, _, _, status, admin_msg_id, _, _, _, _, _, _, _ = row
     admin_chat_id = primary_admin_id()
     if not admin_chat_id or not admin_msg_id:
         return
@@ -446,10 +542,10 @@ async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     c = conn.cursor()
     c.execute(
         """
-        INSERT INTO requests (user_id, username, command, payload, status, cost, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO requests (user_id, username, command, payload, status, cost, charged, delivery_count, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (user.id, user.username, command, payload, "pending", cost, now_iso()),
+        (user.id, user.username, command, payload, "pending", cost, 0, 0, now_iso()),
     )
     request_id = c.lastrowid
     conn.commit()
@@ -533,7 +629,7 @@ async def forward_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
         return
 
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
     if status != "pending":
         await update.message.reply_text(f"⚠️ La solicitud #{request_id} ya está en estado {status}.")
         conn.close()
@@ -564,17 +660,38 @@ async def forward_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
         return
 
-    from comandos.utils import descontar_creditos, verificar_usuario
-
-    valido, info = verificar_usuario(str(user_id))
-    if valido and not info.get("ilimitado", False):
-        descontar_creditos(str(user_id), cost)
+    charged = _maybe_charge_request(c, user_id, cost, int(charged or 0))
 
     note = caption or "[archivo enviado]"
-    _update_request_status(c, request_id, "resolved", update.effective_user.id, note)
+    _mark_request_delivery(c, request_id, update.effective_user.id, note, charged=int(charged or 0), resolved=False)
     conn.commit()
-    await update.message.reply_text(f"Archivo enviado a {_target_label(username, user_id)} para la solicitud #{request_id} ✅")
+    await update.message.reply_text(f"Archivo enviado a {_target_label(username, user_id)} para la solicitud #{request_id} ✅ Sigue abierta; usa /done {request_id} cuando termines.")
     conn.close()
+
+
+async def done_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
+    if not update.effective_user or not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ No tienes permisos para finalizar solicitudes.")
+        return
+
+    request_id, note = _parse_request_target(update.message.text, update.message.reply_to_message, "/done")
+    note = note or "✅ Tu solicitud fue finalizada por el administrador."
+
+    if request_id is None and update.message.reply_to_message:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        row = _get_request_by_admin_message(c, update.message.reply_to_message.message_id)
+        conn.close()
+        if not row:
+            await update.message.reply_text("Solicitud no encontrada.")
+            return
+        request_id = row[0]
+
+    _clear_action_state(context)
+    ok, msg = await _done_request_by_id(context, update.effective_user.id, request_id, note)
+    await update.message.reply_text(msg)
 
 
 async def close_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -699,7 +816,7 @@ async def pending_requests_command(update: Update, context: ContextTypes.DEFAULT
     for request_id, username, user_id, command, cost, created_at in rows:
         lines.append(f"#{request_id} | /{command} | {_target_label(username, user_id)} | {cost}cr | {created_at or '—'}")
     lines.append("")
-    lines.append("Usa /reply, /rquick, /close o /fail.")
+    lines.append("Usa /reply, /rquick, /done, /close o /fail.")
     await update.message.reply_text("\n".join(lines))
 
 
@@ -799,6 +916,11 @@ async def request_buttons_callback(update: Update, context: ContextTypes.DEFAULT
         await query.message.reply_text(f"Escribe el motivo para cerrar la solicitud #{request_id} o manda solo un punto `.` para usar el texto por defecto.")
         return
 
+    if action == "done":
+        _set_action_state(context, "done", request_id)
+        await query.message.reply_text(f"Escribe un cierre final para la solicitud #{request_id} o manda solo un punto `.` para usar el texto por defecto.")
+        return
+
     if action == "fail":
         _set_action_state(context, "fail", request_id)
         await query.message.reply_text(f"Escribe el motivo de la falla para la solicitud #{request_id} o manda solo un punto `.` para usar el texto por defecto.")
@@ -832,8 +954,6 @@ async def admin_followup_message(update: Update, context: ContextTypes.DEFAULT_T
     if text == ".":
         text = ""
 
-    _clear_action_state(context)
-
     if action == "reply":
         if not text:
             await update.message.reply_text("❌ La respuesta no puede estar vacía.")
@@ -847,6 +967,13 @@ async def admin_followup_message(update: Update, context: ContextTypes.DEFAULT_T
             await update.message.reply_text("❌ La respuesta no puede estar vacía.")
             return
         ok, msg = await _send_request_reply_free(context, update.effective_user.id, request_id, text)
+        await update.message.reply_text(msg)
+        return
+
+    _clear_action_state(context)
+
+    if action == "done":
+        ok, msg = await _done_request_by_id(context, update.effective_user.id, request_id, text or "✅ Tu solicitud fue finalizada por el administrador.")
         await update.message.reply_text(msg)
         return
 

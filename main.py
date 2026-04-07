@@ -364,6 +364,7 @@ def main():
     add_command_handler(application, "reply", admin_requests.reply_request)
     add_command_handler(application, "pending", admin_requests.pending_requests_command)
     add_command_handler(application, "close", admin_requests.close_request)
+    add_command_handler(application, "done", admin_requests.done_request)
     add_command_handler(application, "fail", admin_requests.fail_request)
     add_command_handler(application, "templates", admin_requests.templates_command)
     add_command_handler(application, "rquick", admin_requests.quick_reply_command)
