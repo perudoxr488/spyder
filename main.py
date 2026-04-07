@@ -95,6 +95,7 @@ from comandos.cmdsadmin import cmdsadmin_command
 from comandos.precios import precios_command
 from comandos.genkey import genkey, redeem, keyslog, keysinfo
 from comandos import admin_requests
+from comandos.manual_catalog import manual_catalog_command
 
 # ---------- Config ----------
 CONFIG_FILE_PATH = 'config.json'
@@ -369,6 +370,7 @@ def main():
     add_command_handler(application, "requestlog", admin_requests.request_log_command)
     add_command_handler(application, "reopen", admin_requests.reopen_request)
     add_command_handler(application, "precios", precios_command)
+    application.add_handler(MessageHandler(filters.COMMAND, manual_catalog_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_requests.admin_followup_message))
     application.add_handler(MessageHandler(filters.ALL, admin_requests.forward_file))
 
