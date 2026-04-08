@@ -565,6 +565,50 @@ def filter_catalog_commands(commands: list[dict], q: str = "", category: str = "
     return result
 
 
+def parse_bulk_command_rows(raw_text: str):
+    rows = []
+    errors = []
+    for idx, raw_line in enumerate((raw_text or "").splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [part.strip() for part in line.split(";;")]
+        if len(parts) < 5:
+            errors.append(
+                f"Línea {idx}: formato inválido. Usa slug;;nombre;;costo;;usage_hint;;info"
+            )
+            continue
+        slug, name, cost_raw, usage_hint, description = parts[:5]
+        status_raw = parts[5].strip().lower() if len(parts) >= 6 else "1"
+        order_raw = parts[6].strip() if len(parts) >= 7 else "0"
+        if not slug or not name:
+            errors.append(f"Línea {idx}: slug y nombre son obligatorios")
+            continue
+        try:
+            cost = max(0, int(cost_raw))
+        except Exception:
+            errors.append(f"Línea {idx}: costo inválido '{cost_raw}'")
+            continue
+        is_active = 0 if status_raw in {"0", "off", "inactive", "inactivo"} else 1
+        try:
+            sort_order = int(order_raw or 0)
+        except Exception:
+            errors.append(f"Línea {idx}: orden inválido '{order_raw}'")
+            continue
+        rows.append(
+            {
+                "slug": slug.lower(),
+                "name": name,
+                "cost": cost,
+                "usage_hint": usage_hint,
+                "description": description,
+                "is_active": is_active,
+                "sort_order": sort_order,
+            }
+        )
+    return rows, errors
+
+
 def build_panel_previews(settings: dict, buy_packages: list[dict], commands: list[dict]):
     owner = settings.get("BT_OWNER") or "OWNER"
     canal = settings.get("BT_CANAL") or "CANAL"
@@ -2098,6 +2142,74 @@ def admin_save_command():
     conn.commit()
     conn.close()
     return redirect(url_for("admin_panel", section="comandos", flash=f"Comando /{slug} guardado."))
+
+
+@app.route("/admin/command/import", methods=["POST"])
+def admin_import_commands():
+    gate = require_panel_login()
+    if gate:
+        return gate
+
+    bulk_text = (request.form.get("bulk_commands") or "").strip()
+    category_id = request.form.get("bulk_category_id") or None
+    try:
+        category_id = int(category_id) if category_id else None
+    except Exception:
+        category_id = None
+
+    if not bulk_text:
+        return redirect(url_for("admin_panel", section="comandos", flash="Pega al menos una línea para importar."))
+
+    rows, errors = parse_bulk_command_rows(bulk_text)
+    if errors:
+        return redirect(url_for("admin_panel", section="comandos", flash="Importación cancelada: " + " | ".join(errors[:4])))
+    if not rows:
+        return redirect(url_for("admin_panel", section="comandos", flash="No se encontraron líneas válidas para importar."))
+
+    conn = get_conn(DB_PATH)
+    cur = conn.cursor()
+    created = 0
+    updated = 0
+    for item in rows:
+        cur.execute("SELECT 1 FROM command_catalog WHERE slug = ?", (item["slug"],))
+        exists = cur.fetchone() is not None
+        cur.execute(
+            """
+            INSERT INTO command_catalog (slug, name, description, category_id, cost, is_active, sort_order, usage_hint)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(slug) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                category_id = excluded.category_id,
+                cost = excluded.cost,
+                is_active = excluded.is_active,
+                sort_order = excluded.sort_order,
+                usage_hint = excluded.usage_hint
+            """,
+            (
+                item["slug"],
+                item["name"],
+                item["description"],
+                category_id,
+                item["cost"],
+                item["is_active"],
+                item["sort_order"],
+                item["usage_hint"],
+            ),
+        )
+        if exists:
+            updated += 1
+        else:
+            created += 1
+    conn.commit()
+    conn.close()
+    return redirect(
+        url_for(
+            "admin_panel",
+            section="comandos",
+            flash=f"Importación lista: {created} creados, {updated} actualizados.",
+        )
+    )
 
 
 @app.route("/admin/buy/save", methods=["POST"])

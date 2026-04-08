@@ -432,9 +432,9 @@
         </div>
         {% endif %}
         {% if active_section == 'comandos' %}
-        <div class="card">
-          <h2>Nuevo Comando</h2>
-          <form method="post" action="{{ url_for('admin_save_command') }}">
+          <div class="card">
+            <h2>Nuevo Comando</h2>
+            <form method="post" action="{{ url_for('admin_save_command') }}">
             <label>Slug</label>
             <input name="slug" placeholder="dni" required>
             <label>Nombre visible</label>
@@ -472,11 +472,29 @@
             <label>INFO visible en /cmds</label>
             <textarea name="description" placeholder="Texto que saldrá en INFO dentro del menú"></textarea>
             <button class="secondary" type="submit">Guardar comando</button>
-          </form>
-          <p class="small">Si creas un comando aquí pero no existe su handler en Python, solo quedará catalogado; no ejecutará una lógica nueva por sí solo.</p>
+            </form>
+            <p class="small">Si creas un comando aquí pero no existe su handler en Python, solo quedará catalogado; no ejecutará una lógica nueva por sí solo.</p>
+          </div>
+          <div class="card">
+            <h2>Importación Masiva</h2>
+            <form method="post" action="{{ url_for('admin_import_commands') }}">
+              <label>Categoría para todo el bloque</label>
+              <select name="bulk_category_id">
+                <option value="">Sin categoría</option>
+                {% for cat in categories %}
+                <option value="{{ cat.id }}">{{ cat.name }}</option>
+                {% endfor %}
+              </select>
+              <label>Pega una línea por comando</label>
+              <textarea name="bulk_commands" placeholder="minsa;;Descanso MINSA;;25;;/minsa DNI|CONTINGENCIA|DIAS;;Solicitud manual de descanso&#10;const;;Constancia MINSA;;25;;/const DNI|DIAS|DIAGNOSTICO;;Solicitud manual de constancia"></textarea>
+              <p class="small">Formato recomendado: <code>slug;;nombre;;costo;;usage_hint;;info</code></p>
+              <p class="small">Si repites un <code>slug</code>, no lo duplica: lo actualiza con la nueva categoría, costo, uso e info.</p>
+              <p class="small">Opcional: puedes agregar <code>;;estado;;orden</code> al final. Ejemplo: <code>minsa;;Descanso MINSA;;25;;/minsa DNI|CONTINGENCIA|DIAS;;Solicitud manual;;1;;10</code></p>
+              <button type="submit">Importar bloque</button>
+            </form>
+          </div>
+          {% endif %}
         </div>
-        {% endif %}
-      </div>
       <div class="stack" id="sec-comandos">
         {% if active_section == 'categorias' %}
         <div class="card">
