@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sqlite3
 from datetime import datetime
 
@@ -178,6 +179,52 @@ def _parse_request_target(message_text: str, reply_to_message, command_name: str
         content = raw_text[len(command_name):].strip()
 
     return request_id, content
+
+
+def _extract_request_id_from_text(text: str | None) -> int | None:
+    value = (text or "").strip()
+    if not value:
+        return None
+    match = re.search(r"(?:solicitud\s*#|#)(\d+)", value, re.IGNORECASE)
+    if match:
+        try:
+            return int(match.group(1))
+        except Exception:
+            return None
+    return None
+
+
+def _resolve_request_id_from_message(cursor, context: ContextTypes.DEFAULT_TYPE, explicit_request_id: int | None, reply_to_message) -> int | None:
+    if explicit_request_id is not None:
+        return explicit_request_id
+
+    state = (getattr(context, "user_data", {}) or {}).get(REQUEST_ACTION_KEY) or {}
+    state_request_id = state.get("request_id")
+    if state_request_id:
+        try:
+            return int(state_request_id)
+        except Exception:
+            pass
+
+    if not reply_to_message:
+        return None
+
+    row = _get_request_by_admin_message(cursor, reply_to_message.message_id)
+    if row:
+        return int(row[0])
+
+    guessed = _extract_request_id_from_text(getattr(reply_to_message, "text", None) or getattr(reply_to_message, "caption", None))
+    if guessed is not None:
+        return guessed
+
+    return None
+
+
+def _build_delivery_caption(intro: str, caption: str | None = None, limit: int = 1024) -> str:
+    text = f"{intro}\n\n{(caption or '').strip()}" if (caption or "").strip() else intro
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
 
 
 def _resolve_template(template_key: str) -> str | None:
@@ -598,22 +645,20 @@ async def reply_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Uso: /reply <id> <texto> o responde al mensaje del admin con /reply <texto>")
         return
 
-    if request_id is None and update.message.reply_to_message:
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        row = _get_request_by_admin_message(c, update.message.reply_to_message.message_id)
-        conn.close()
-        if not row:
-            await update.message.reply_text("Solicitud no encontrada.")
-            return
-        request_id = row[0]
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    request_id = _resolve_request_id_from_message(c, context, request_id, update.message.reply_to_message)
+    conn.close()
+    if request_id is None:
+        await update.message.reply_text("Solicitud no encontrada.")
+        return
 
     ok, msg = await _send_request_reply(context, update.effective_user.id, request_id, reply_text)
     await update.message.reply_text(msg)
 
 
 async def forward_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.reply_to_message:
+    if not update.message:
         return
     if not update.effective_user or not is_admin(update.effective_user.id):
         return
@@ -622,7 +667,8 @@ async def forward_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    row = _get_request_by_admin_message(c, update.message.reply_to_message.message_id)
+    request_id = _resolve_request_id_from_message(c, context, None, update.message.reply_to_message)
+    row = _get_request_by_id(c, request_id) if request_id is not None else None
 
     if not row:
         await update.message.reply_text("❌ Ese mensaje no está vinculado a una solicitud pendiente.")
@@ -639,21 +685,26 @@ async def forward_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     intro = f"📬 Archivo para tu solicitud #{request_id}\n📌 Comando: /{command}"
     delivered = False
 
-    if update.message.photo:
-        await context.bot.send_photo(chat_id=user_id, photo=update.message.photo[-1].file_id, caption=f"{intro}\n\n{caption}" if caption else intro)
-        delivered = True
-    elif update.message.document:
-        await context.bot.send_document(chat_id=user_id, document=update.message.document.file_id, caption=f"{intro}\n\n{caption}" if caption else intro)
-        delivered = True
-    elif update.message.video:
-        await context.bot.send_video(chat_id=user_id, video=update.message.video.file_id, caption=f"{intro}\n\n{caption}" if caption else intro)
-        delivered = True
-    elif update.message.audio:
-        await context.bot.send_audio(chat_id=user_id, audio=update.message.audio.file_id, caption=f"{intro}\n\n{caption}" if caption else intro)
-        delivered = True
-    elif update.message.voice:
-        await context.bot.send_voice(chat_id=user_id, voice=update.message.voice.file_id, caption=caption or intro)
-        delivered = True
+    try:
+        if update.message.photo:
+            await context.bot.send_photo(chat_id=user_id, photo=update.message.photo[-1].file_id, caption=_build_delivery_caption(intro, caption))
+            delivered = True
+        elif update.message.document:
+            await context.bot.send_document(chat_id=user_id, document=update.message.document.file_id, caption=_build_delivery_caption(intro, caption))
+            delivered = True
+        elif update.message.video:
+            await context.bot.send_video(chat_id=user_id, video=update.message.video.file_id, caption=_build_delivery_caption(intro, caption))
+            delivered = True
+        elif update.message.audio:
+            await context.bot.send_audio(chat_id=user_id, audio=update.message.audio.file_id, caption=_build_delivery_caption(intro, caption))
+            delivered = True
+        elif update.message.voice:
+            await context.bot.send_voice(chat_id=user_id, voice=update.message.voice.file_id, caption=_build_delivery_caption(intro, caption))
+            delivered = True
+    except Exception as exc:
+        await update.message.reply_text(f"❌ No se pudo reenviar el archivo: {exc}")
+        conn.close()
+        return
 
     if not delivered:
         await update.message.reply_text("❌ Ese tipo de archivo todavía no se reenvía automáticamente.")
@@ -679,15 +730,13 @@ async def done_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     request_id, note = _parse_request_target(update.message.text, update.message.reply_to_message, "/done")
     note = note or "✅ Tu solicitud fue finalizada por el administrador."
 
-    if request_id is None and update.message.reply_to_message:
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        row = _get_request_by_admin_message(c, update.message.reply_to_message.message_id)
-        conn.close()
-        if not row:
-            await update.message.reply_text("Solicitud no encontrada.")
-            return
-        request_id = row[0]
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    request_id = _resolve_request_id_from_message(c, context, request_id, update.message.reply_to_message)
+    conn.close()
+    if request_id is None:
+        await update.message.reply_text("Solicitud no encontrada.")
+        return
 
     _clear_action_state(context)
     ok, msg = await _done_request_by_id(context, update.effective_user.id, request_id, note)
@@ -704,15 +753,13 @@ async def close_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     request_id, note = _parse_request_target(update.message.text, update.message.reply_to_message, "/close")
     note = note or "Tu solicitud fue cerrada por el administrador."
 
-    if request_id is None and update.message.reply_to_message:
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        row = _get_request_by_admin_message(c, update.message.reply_to_message.message_id)
-        conn.close()
-        if not row:
-            await update.message.reply_text("Solicitud no encontrada.")
-            return
-        request_id = row[0]
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    request_id = _resolve_request_id_from_message(c, context, request_id, update.message.reply_to_message)
+    conn.close()
+    if request_id is None:
+        await update.message.reply_text("Solicitud no encontrada.")
+        return
 
     ok, msg = await _close_request_by_id(context, update.effective_user.id, request_id, note)
     await update.message.reply_text(msg)
@@ -728,15 +775,13 @@ async def fail_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     request_id, note = _parse_request_target(update.message.text, update.message.reply_to_message, "/fail")
     note = note or _resolve_template("nodata") or DEFAULT_QUICK_TEMPLATES["nodata"]
 
-    if request_id is None and update.message.reply_to_message:
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        row = _get_request_by_admin_message(c, update.message.reply_to_message.message_id)
-        conn.close()
-        if not row:
-            await update.message.reply_text("Solicitud no encontrada.")
-            return
-        request_id = row[0]
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    request_id = _resolve_request_id_from_message(c, context, request_id, update.message.reply_to_message)
+    conn.close()
+    if request_id is None:
+        await update.message.reply_text("Solicitud no encontrada.")
+        return
 
     ok, msg = await _fail_request_by_id(context, update.effective_user.id, request_id, note)
     await update.message.reply_text(msg)
@@ -776,15 +821,13 @@ async def quick_reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("Uso: /rquick <id> <plantilla> o responde al mensaje del admin con /rquick <plantilla>")
         return
 
-    if request_id is None and update.message.reply_to_message:
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        row = _get_request_by_admin_message(c, update.message.reply_to_message.message_id)
-        conn.close()
-        if not row:
-            await update.message.reply_text("Solicitud no encontrada.")
-            return
-        request_id = row[0]
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    request_id = _resolve_request_id_from_message(c, context, request_id, update.message.reply_to_message)
+    conn.close()
+    if request_id is None:
+        await update.message.reply_text("Solicitud no encontrada.")
+        return
 
     ok, msg = await _send_template_by_id(context, update.effective_user.id, request_id, template_key)
     await update.message.reply_text(msg)
