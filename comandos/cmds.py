@@ -140,6 +140,24 @@ def _get_remote_catalog():
     return None
 
 
+def _bot_brand(cfg: dict) -> str:
+    settings = _get_panel_settings()
+    raw = (
+        settings.get("BOT_NAME")
+        or settings.get("NAME")
+        or os.environ.get("SPIDERSYN_BOT_NAME")
+        or cfg.get("BOT_NAME")
+        or cfg.get("NAME")
+        or "#SPIDERSYN"
+    )
+    raw = str(raw).strip() or "#SPIDERSYN"
+    if raw.upper() == "SPIDERSYN":
+        raw = "#SPIDERSYN"
+    if "⇒" not in raw and "➾" not in raw:
+        raw = f"{raw} ⇒"
+    return raw
+
+
 def _get_menu_image(cfg: dict) -> str | None:
     settings = _get_panel_settings()
     img = settings.get("FT_CMDS") or (cfg.get("LOGO") or {}).get("FT_CMDS")
@@ -308,7 +326,7 @@ def _kb_category_nav(category_slug: str, page: int, total_pages: int):
 
 
 def _home_caption(cfg: dict, user) -> str:
-    bot_name = (cfg.get("BOT_NAME") or "[#BOT] ➾").strip()
+    bot_name = _bot_brand(cfg)
     nombre = html.escape(user.first_name or "Usuario")
     link = _user_link(user)
     return (
@@ -320,7 +338,7 @@ def _home_caption(cfg: dict, user) -> str:
 
 
 def _category_caption(cfg: dict, category: dict, commands: list[dict], page: int) -> str:
-    bot_name = (cfg.get("BOT_NAME") or "[#BOT] ➾").strip()
+    bot_name = _bot_brand(cfg)
     total_commands = len(commands)
     total_pages = max(1, math.ceil(total_commands / PAGE_SIZE))
     start = (page - 1) * PAGE_SIZE

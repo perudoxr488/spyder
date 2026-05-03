@@ -3,6 +3,7 @@ import json
 import html
 import sqlite3
 import json as jsonlib
+import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from typing import Optional, Tuple
@@ -21,6 +22,7 @@ BOT_NAME = ""
 API_BASE = ""
 INTERNAL_API_KEY = ""
 cfg = {}
+_SETTINGS_CACHE = {"ts": 0.0, "data": None}
 
 if os.path.exists(CONFIG_FILE_PATH):
     try:
@@ -110,6 +112,40 @@ def _fetch_json(url: str, timeout: int = 15):
         return 599, {"status": "error", "message": str(e)}
     except Exception as e:
         return 500, {"status": "error", "message": str(e)}
+
+
+def _get_remote_settings() -> dict:
+    now = time.monotonic()
+    if _SETTINGS_CACHE["data"] is not None and now - float(_SETTINGS_CACHE["ts"]) < 30:
+        return _SETTINGS_CACHE["data"]
+    if not API_BASE:
+        return {}
+    st, js = _fetch_json(f"{API_BASE}/bot_catalog", timeout=12)
+    if st == 200 and js.get("status") == "ok":
+        data = ((js.get("data") or {}).get("settings") or {})
+        _SETTINGS_CACHE["ts"] = now
+        _SETTINGS_CACHE["data"] = data
+        return data
+    return {}
+
+
+def _bot_brand() -> str:
+    settings = _get_remote_settings()
+    raw = (
+        settings.get("BOT_NAME")
+        or settings.get("NAME")
+        or os.environ.get("SPIDERSYN_BOT_NAME")
+        or BOT_NAME
+        or cfg.get("BOT_NAME")
+        or cfg.get("NAME")
+        or "#SPIDERSYN"
+    )
+    raw = str(raw).strip() or "#SPIDERSYN"
+    if raw.upper() == "SPIDERSYN":
+        raw = "#SPIDERSYN"
+    if "⇒" not in raw and "➾" not in raw:
+        raw = f"{raw} ⇒"
+    return raw
 
 
 async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -216,7 +252,7 @@ async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tiempo_str, activo, _ = _days_left(exp)
     creditos_str = f"{creditos}{' ♾️' if activo else ''}"
 
-    header = f"{BOT_NAME} ME - PERFIL".strip() or "ME - PERFIL"
+    header = f"{_bot_brand()} ME - PERFIL"
 
     caption = (
         f"<b>{header}</b>\n"
