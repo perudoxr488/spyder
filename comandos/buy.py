@@ -1,6 +1,9 @@
 import os
 import json
 import sqlite3
+import time
+from urllib import request as _urlreq
+from urllib.error import HTTPError, URLError
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 from storage import db_path
@@ -19,6 +22,23 @@ if os.path.exists(CONFIG_FILE_PATH):
 else:
     print(f"⚠️ No se encontró {CONFIG_FILE_PATH}")
 
+API_BASE = (
+    os.environ.get("SPIDERSYN_API_BASE")
+    or os.environ.get("API_BASE")
+    or os.environ.get("API_DB_BASE")
+    or cfg.get("API_DB_BASE")
+    or cfg.get("API_BASE")
+    or ""
+).rstrip("/")
+INTERNAL_API_KEY = (
+    os.environ.get("SPIDERSYN_INTERNAL_API_KEY")
+    or os.environ.get("INTERNAL_API_KEY")
+    or cfg.get("INTERNAL_API_KEY")
+    or cfg.get("TOKEN_BOT")
+    or ""
+).strip()
+_CATALOG_CACHE = {"ts": 0.0, "data": None}
+
 
 def non_empty(s: str) -> bool:
     return isinstance(s, str) and s.strip() != ""
@@ -28,7 +48,53 @@ def btn(text: str, url: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text, url=url)
 
 
+def _fetch_api_json(path: str, timeout: int = 15):
+    if not API_BASE:
+        return None
+    headers = {"User-Agent": "SpiderSynBot/1.0"}
+    if INTERNAL_API_KEY:
+        headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
+    req = _urlreq.Request(f"{API_BASE}{path}", headers=headers)
+    try:
+        with _urlreq.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+    except (HTTPError, URLError, Exception):
+        return None
+
+
+def _get_remote_catalog():
+    now = time.monotonic()
+    if _CATALOG_CACHE["data"] is not None and now - float(_CATALOG_CACHE["ts"]) < 30:
+        return _CATALOG_CACHE["data"]
+    js = _fetch_api_json("/bot_catalog")
+    if js and js.get("status") == "ok":
+        data = js.get("data") or {}
+        _CATALOG_CACHE["ts"] = now
+        _CATALOG_CACHE["data"] = data
+        return data
+    return None
+
+
 def _get_buy_groups():
+    remote = _get_remote_catalog()
+    if remote is not None:
+        rows = [row for row in (remote.get("buy_packages") or []) if row.get("is_active", True)]
+        grouped = {"credits": [], "days": []}
+        seen = {}
+        for row in rows:
+            key = (row.get("kind"), row.get("group_slug"))
+            if key not in seen:
+                entry = {
+                    "badge": row.get("badge", ""),
+                    "title": row.get("title", ""),
+                    "subtitle": row.get("subtitle", ""),
+                    "items": [],
+                }
+                grouped.setdefault(row.get("kind"), []).append(entry)
+                seen[key] = entry
+            seen[key]["items"].append(row.get("line_text", ""))
+        return {"credits": grouped.get("credits", []), "days": grouped.get("days", [])}
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -76,6 +142,10 @@ def _get_buy_groups():
 
 
 def _get_panel_settings():
+    remote = _get_remote_catalog()
+    if remote is not None:
+        return remote.get("settings") or {}
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()

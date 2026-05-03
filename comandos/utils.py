@@ -139,6 +139,23 @@ def ensure_command_tables():
 
 
 def get_command_runtime_config(command_slug: str, default_cost: int = 1):
+    if API_BASE:
+        st, js = _fetch_json(
+            f"{API_BASE}/command_config?slug={_urlparse.quote(command_slug)}&default_cost={int(default_cost)}",
+            timeout=12,
+        )
+        if st == 200:
+            data = js.get("data") or {}
+            if data:
+                return {
+                    "slug": data.get("slug") or command_slug,
+                    "name": data.get("name") or command_slug.upper(),
+                    "cost": int(data.get("cost") or default_cost),
+                    "is_active": bool(data.get("is_active", True)),
+                    "category_slug": data.get("category_slug"),
+                    "category_name": data.get("category_name"),
+                }
+
     ensure_command_tables()
     conn = _catalog_conn()
     conn.row_factory = sqlite3.Row

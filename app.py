@@ -1998,6 +1998,24 @@ def command_config():
     return jsonify({"status": "ok", "data": get_command_config_value(slug, default_cost)}), 200
 
 
+@app.route("/bot_catalog", methods=["GET"])
+def bot_catalog():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
+    return jsonify(
+        {
+            "status": "ok",
+            "data": {
+                "categories": get_catalog_categories(),
+                "commands": get_catalog_commands(),
+                "buy_packages": get_buy_packages(),
+                "settings": get_panel_settings(),
+            },
+        }
+    ), 200
+
+
 # Templates del panel movidos a templates/admin_panel.html y templates/admin_login.html
 
 @app.route("/admin/panel", methods=["GET"])

@@ -3,6 +3,9 @@ import json
 import html
 import math
 import sqlite3
+import time
+from urllib import request as _urlreq
+from urllib.error import HTTPError, URLError
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 from storage import db_path
@@ -11,6 +14,29 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE_PATH = os.path.join(BASE_DIR, "config.json")
 DB_PATH = db_path("multiplataforma.db")
 PAGE_SIZE = 5
+CFG = {}
+try:
+    if os.path.exists(CONFIG_FILE_PATH):
+        with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
+            CFG = json.load(f) or {}
+except Exception:
+    CFG = {}
+API_BASE = (
+    os.environ.get("SPIDERSYN_API_BASE")
+    or os.environ.get("API_BASE")
+    or os.environ.get("API_DB_BASE")
+    or CFG.get("API_DB_BASE")
+    or CFG.get("API_BASE")
+    or ""
+).rstrip("/")
+INTERNAL_API_KEY = (
+    os.environ.get("SPIDERSYN_INTERNAL_API_KEY")
+    or os.environ.get("INTERNAL_API_KEY")
+    or CFG.get("INTERNAL_API_KEY")
+    or CFG.get("TOKEN_BOT")
+    or ""
+).strip()
+_CATALOG_CACHE = {"ts": 0.0, "data": None}
 DEFAULT_DETAILS = {
     "nm": {"usage_hint": "/nm nombre|paterno|materno", "description": "Busqueda por nombres con DNI y edad."},
     "dni": {"usage_hint": "/dni 12345678", "description": "Imagen del rostro y datos principales."},
@@ -84,14 +110,34 @@ DEFAULT_DETAILS = {
 
 
 def _load_cfg():
-    cfg = {}
-    if os.path.exists(CONFIG_FILE_PATH):
-        try:
-            with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-        except Exception:
-            pass
-    return cfg or {}
+    return CFG or {}
+
+
+def _fetch_api_json(path: str, timeout: int = 15):
+    if not API_BASE:
+        return None
+    headers = {"User-Agent": "SpiderSynBot/1.0"}
+    if INTERNAL_API_KEY:
+        headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
+    req = _urlreq.Request(f"{API_BASE}{path}", headers=headers)
+    try:
+        with _urlreq.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+    except (HTTPError, URLError, Exception):
+        return None
+
+
+def _get_remote_catalog():
+    now = time.monotonic()
+    if _CATALOG_CACHE["data"] is not None and now - float(_CATALOG_CACHE["ts"]) < 30:
+        return _CATALOG_CACHE["data"]
+    js = _fetch_api_json("/bot_catalog")
+    if js and js.get("status") == "ok":
+        data = js.get("data") or {}
+        _CATALOG_CACHE["ts"] = now
+        _CATALOG_CACHE["data"] = data
+        return data
+    return None
 
 
 def _get_menu_image(cfg: dict) -> str | None:
@@ -159,6 +205,10 @@ def _ensure_catalog_tables():
 
 
 def _get_panel_settings():
+    remote = _get_remote_catalog()
+    if remote is not None:
+        return remote.get("settings") or {}
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -177,6 +227,10 @@ def _get_panel_settings():
 
 
 def _get_categories():
+    remote = _get_remote_catalog()
+    if remote is not None:
+        return [cat for cat in (remote.get("categories") or []) if cat.get("is_active", True)]
+
     _ensure_catalog_tables()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -195,6 +249,14 @@ def _get_categories():
 
 
 def _get_commands_by_category(category_slug: str):
+    remote = _get_remote_catalog()
+    if remote is not None:
+        return [
+            cmd for cmd in (remote.get("commands") or [])
+            if (cmd.get("category_slug") or "").lower() == (category_slug or "").lower()
+            and cmd.get("is_active", True)
+        ]
+
     _ensure_catalog_tables()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
