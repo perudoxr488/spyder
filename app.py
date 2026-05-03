@@ -418,6 +418,42 @@ def init_panel_settings_db():
     conn.close()
 
 
+def init_requests_db():
+    conn = get_conn(REQUESTS_DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            username TEXT,
+            command TEXT,
+            payload TEXT,
+            status TEXT,
+            admin_msg_id INTEGER,
+            cost INTEGER DEFAULT 1,
+            charged INTEGER DEFAULT 0,
+            delivery_count INTEGER DEFAULT 0,
+            created_at TEXT,
+            resolved_at TEXT,
+            resolved_by INTEGER,
+            resolution_note TEXT
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS request_templates (
+            key TEXT PRIMARY KEY,
+            text TEXT NOT NULL,
+            billable INTEGER DEFAULT 0
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
 def get_catalog_categories():
     conn = get_conn(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -2679,6 +2715,7 @@ def init_app_databases():
     init_catalog_db()
     init_buy_db()
     init_panel_settings_db()
+    init_requests_db()
 
 
 init_app_databases()
