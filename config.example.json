@@ -1,0 +1,13 @@
+{
+  "TOKEN_BOT": "set-in-railway",
+  "API_BASE": "https://your-web-service.up.railway.app",
+  "ADMIN_ID": "123456789",
+  "INTERNAL_API_KEY": "set-in-railway",
+  "PANEL_USER": "admin",
+  "PANEL_PASSWORD": "set-in-railway",
+  "PANEL_SECRET": "set-in-railway",
+  "PANEL_PUBLIC": true,
+  "BOT_NAME": "SpiderSyn",
+  "CMDS": {},
+  "ERRORCONSULTA": {}
+}
