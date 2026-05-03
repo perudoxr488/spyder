@@ -281,6 +281,7 @@ DEFAULT_BUY_PACKAGES = [
 ]
 
 DEFAULT_PANEL_SETTINGS = [
+    ("BOT_NAME", CFG.get("BOT_NAME") or CFG.get("NAME") or "#SPIDERSYN ⇒"),
     ("BT_OWNER", CFG.get("BT_OWNER") or "OWNER"),
     ("OWNER_LINK", CFG.get("OWNER_LINK") or ""),
     ("BT_CANAL", CFG.get("BT_CANAL") or "CANAL"),

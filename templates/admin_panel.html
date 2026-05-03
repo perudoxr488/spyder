@@ -701,7 +701,7 @@
           <h2>Ajustes Visuales y Botones</h2>
           <p class="small">Controla desde aquí imágenes y enlaces que usan `/start`, `/buy`, `/cmds`, `/cmdsadmin` y otras pantallas.</p>
           <div class="three">
-            {% for key in ['BT_OWNER','OWNER_LINK','BT_CANAL','CANAL_LINK','BT_GRUPO','GRUPO_LINK','BT_SELLER','SELLER_LINK','BT_SELLER1','SELLER_LINK1','BT_SELLER2','SELLER_LINK2','BT_SELLER3','SELLER_LINK3','FT_BUY','FT_CMDS','FT_CMDSADMIN','FT_START'] %}
+            {% for key in ['BOT_NAME','BT_OWNER','OWNER_LINK','BT_CANAL','CANAL_LINK','BT_GRUPO','GRUPO_LINK','BT_SELLER','SELLER_LINK','BT_SELLER1','SELLER_LINK1','BT_SELLER2','SELLER_LINK2','BT_SELLER3','SELLER_LINK3','FT_BUY','FT_CMDS','FT_CMDSADMIN','FT_START'] %}
             <form class="mini-card" method="post" action="{{ url_for('admin_save_setting') }}">
               <input type="hidden" name="key" value="{{ key }}">
               <label>{{ key }}</label>

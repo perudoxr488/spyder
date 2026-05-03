@@ -49,6 +49,19 @@ INTERNAL_API_KEY = (
     or ""
 ).strip()
 
+_admin_raw = (
+    os.environ.get("SPIDERSYN_ADMIN_ID")
+    or os.environ.get("ADMIN_ID")
+    or cfg.get("ADMIN_ID")
+)
+if isinstance(_admin_raw, list):
+    _admin_values = _admin_raw
+elif _admin_raw is None:
+    _admin_values = []
+else:
+    _admin_values = str(_admin_raw).replace(",", " ").split()
+ADMIN_IDS = {str(x).strip() for x in _admin_values if str(x).strip()}
+
 
 def _to_lima_iso_hm(iso_str: Optional[str]) -> str:
     if not iso_str:
@@ -204,6 +217,8 @@ async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     id_api = data.get("ID_TG", target_id)
     plan = data.get("PLAN", "—")
     rol_tg = data.get("ROL_TG", "—")
+    if str(target_id) in ADMIN_IDS:
+        rol_tg = "FUNDADOR"
     exp = data.get("FECHA DE CADUCIDAD")
 
     s2, j2 = _fetch_json(f"{API_BASE}/historial_id?ID_TG={target_id}")
