@@ -1,6 +1,7 @@
 import os
 import json
 import html
+import time
 from typing import Tuple
 
 from urllib import parse as _urlparse
@@ -55,6 +56,9 @@ else:
 ADMIN_IDS = {int(x) for x in _admin_values if str(x).strip().isdigit()}
 
 
+_SETTINGS_CACHE = {"ts": 0.0, "data": None}
+
+
 def _brand_clean(s: str) -> str:
     s = (s or "#BOT")
     for tag in ("<code>", "</code>", "<b>", "</b>", "<i>", "</i>"):
@@ -63,8 +67,43 @@ def _brand_clean(s: str) -> str:
     return s
 
 
-BOT_NAME_RAW = (CFG.get("BOT_NAME") or CFG.get("NAME") or "#BOT").strip()
-BOT_BRAND = _brand_clean(BOT_NAME_RAW)
+def _get_remote_settings() -> dict:
+    now = time.monotonic()
+    if _SETTINGS_CACHE["data"] is not None and now - float(_SETTINGS_CACHE["ts"]) < 30:
+        return _SETTINGS_CACHE["data"]
+    if not API_BASE:
+        return {}
+    st, js = _fetch_json(f"{API_BASE}/bot_catalog", timeout=12)
+    if st == 200 and js.get("status") == "ok":
+        data = ((js.get("data") or {}).get("settings") or {})
+        _SETTINGS_CACHE["ts"] = now
+        _SETTINGS_CACHE["data"] = data
+        return data
+    return {}
+
+
+def _bot_brand() -> str:
+    settings = _get_remote_settings()
+    raw = (
+        settings.get("BOT_NAME")
+        or settings.get("NAME")
+        or os.environ.get("SPIDERSYN_BOT_NAME")
+        or CFG.get("BOT_NAME")
+        or CFG.get("NAME")
+        or "#BOT"
+    )
+    return _brand_clean(str(raw).strip() or "#BOT")
+
+
+class _BrandProxy:
+    def __str__(self) -> str:
+        return _bot_brand()
+
+    def __format__(self, spec: str) -> str:
+        return format(str(self), spec)
+
+
+BOT_BRAND = _BrandProxy()
 
 _ALLOWED_ALL = {"FUNDADOR", "CO-FUNDADOR", "SELLER"}
 _ALLOWED_SETROL = {"FUNDADOR", "CO-FUNDADOR"}
@@ -240,6 +279,14 @@ def _parse_reply_two_parts(args: list[str]) -> tuple[str | None, int | None, str
     return plan_txt, cantidad, None
 
 
+def _amount_label(oper: str, cantidad: int, unit: str) -> str:
+    if oper == "sumar":
+        return f"+{cantidad} {unit}"
+    if oper == "restar":
+        return f"-{cantidad} {unit}"
+    return f"{cantidad} {unit}"
+
+
 def _extract_reply_target(update: Update) -> str | None:
     m = update.effective_message
     if m and m.reply_to_message and m.reply_to_message.from_user:
@@ -322,11 +369,10 @@ async def _handle_cred_like(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         )
         return
 
-    signo = "+" if oper == "sumar" else "-"
-    cantidad_txt = f"{signo}{cantidad} CREDITOS"
+    cantidad_txt = _amount_label(oper, cantidad, "CREDITOS")
     _log_compra(id_tg=target_id, id_vendedor=str(caller.id), cantidad_texto=cantidad_txt)
 
-    new_cred = (js.get("data") or {}).get("CREDITOS", "—")
+    new_cred = js.get("CREDITOS", (js.get("data") or {}).get("CREDITOS", "—"))
     lines = [
         f"Cliente: {_badge(target_id)}",
         f"Plan aplicado: {_badge(plan_txt)}",
@@ -415,8 +461,7 @@ async def _handle_sub_like(update: Update, context: ContextTypes.DEFAULT_TYPE, o
         )
         return
 
-    signo = "+" if oper == "sumar" else "-"
-    cantidad_txt = f"{signo}{cantidad} DIAS"
+    cantidad_txt = _amount_label(oper, cantidad, "DIAS")
     _log_compra(id_tg=target_id, id_vendedor=str(caller.id), cantidad_texto=cantidad_txt)
 
     lines = [
