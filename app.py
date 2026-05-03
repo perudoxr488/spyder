@@ -2671,7 +2671,7 @@ def login_web():
 # -------------------------
 # Main
 # -------------------------
-if __name__ == "__main__":
+def init_app_databases():
     init_main_db()
     init_hist_db()
     init_compras_db()
@@ -2679,6 +2679,11 @@ if __name__ == "__main__":
     init_catalog_db()
     init_buy_db()
     init_panel_settings_db()
+
+
+init_app_databases()
+
+
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False)
-
