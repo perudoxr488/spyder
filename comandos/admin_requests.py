@@ -3,6 +3,8 @@ import os
 import re
 import sqlite3
 from datetime import datetime
+from urllib import request as _urlreq
+from urllib.error import HTTPError, URLError
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
@@ -28,6 +30,22 @@ elif _admin_raw is None:
 else:
     _admin_values = str(_admin_raw).replace(",", " ").split()
 ADMIN_IDS = {int(x) for x in _admin_values if str(x).strip().isdigit()}
+API_BASE = (
+    os.environ.get("SPIDERSYN_API_BASE")
+    or os.environ.get("API_BASE")
+    or os.environ.get("API_DB_BASE")
+    or CFG.get("API_DB_BASE")
+    or CFG.get("API_BASE")
+    or ""
+).rstrip("/")
+INTERNAL_API_KEY = (
+    os.environ.get("SPIDERSYN_INTERNAL_API_KEY")
+    or os.environ.get("INTERNAL_API_KEY")
+    or CFG.get("INTERNAL_API_KEY")
+    or CFG.get("TOKEN_BOT")
+    or ""
+).strip()
+HISTORIAL_ENDPOINT = f"{API_BASE}/historial"
 
 DEFAULT_QUICK_TEMPLATES = {
     "nodata": "《⚠️》 No se encontró información.",
@@ -49,6 +67,52 @@ def primary_admin_id() -> int | None:
 
 def now_iso() -> str:
     return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def _fetch_json(url: str, timeout: int = 12, method: str = "GET", payload: dict | None = None):
+    headers = {"User-Agent": "SpiderSynBot/1.0"}
+    data = None
+    if INTERNAL_API_KEY:
+        headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(payload).encode("utf-8")
+    req = _urlreq.Request(url, data=data, headers=headers, method=method)
+    try:
+        with _urlreq.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            try:
+                return resp.getcode() or 200, json.loads(body)
+            except Exception:
+                return resp.getcode() or 200, {"status": "error", "message": body}
+    except HTTPError as e:
+        try:
+            body = e.read().decode("utf-8", errors="replace")
+            return e.code, json.loads(body)
+        except Exception:
+            return e.code, {"status": "error", "message": str(e)}
+    except URLError as e:
+        return 599, {"status": "error", "message": str(e)}
+    except Exception as e:
+        return 500, {"status": "error", "message": str(e)}
+
+
+def _log_historial(user_id: int, command: str, payload: str):
+    if not API_BASE:
+        return
+    try:
+        _fetch_json(
+            HISTORIAL_ENDPOINT,
+            method="POST",
+            payload={
+                "ID_TG": str(user_id),
+                "CONSULTA": str(command).lower().strip(),
+                "VALOR": payload or f"/{command}",
+                "PLATAFORMA": "TG",
+            },
+        )
+    except Exception:
+        pass
 
 
 def init_db():
@@ -599,6 +663,7 @@ async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     request_id = c.lastrowid
     conn.commit()
     conn.close()
+    _log_historial(user.id, command, payload)
 
     await message.reply_text(
         f"✅ Tu solicitud *{command.upper()}* está siendo procesada por el bot.\n"
