@@ -45,13 +45,14 @@ TGINFO_ENDPOINT = f"{API_BASE}/tg_info"
 COMPRAS_ENDPOINT = f"{API_BASE}/compras"
 ANTISPAM_ENDPOINT = f"{API_BASE}/antispam"
 
-_admin_raw = CFG.get("ADMIN_ID")
+_admin_raw = os.environ.get("SPIDERSYN_ADMIN_ID") or os.environ.get("ADMIN_ID") or CFG.get("ADMIN_ID")
 if isinstance(_admin_raw, list):
-    ADMIN_IDS = {int(x) for x in _admin_raw if str(x).isdigit()}
+    _admin_values = _admin_raw
 elif _admin_raw is None:
-    ADMIN_IDS = set()
+    _admin_values = []
 else:
-    ADMIN_IDS = {int(_admin_raw)} if str(_admin_raw).isdigit() else set()
+    _admin_values = str(_admin_raw).replace(",", " ").split()
+ADMIN_IDS = {int(x) for x in _admin_values if str(x).strip().isdigit()}
 
 
 def _brand_clean(s: str) -> str:

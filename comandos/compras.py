@@ -2,6 +2,7 @@ import os
 import io
 import json
 import html
+import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from urllib import parse as _urlparse
@@ -22,7 +23,7 @@ try:
 except Exception:
     CFG = {}
 
-BOT_NAME = (CFG.get("BOT_NAME") or CFG.get("NAME") or "").strip() or "#BOT"
+BOT_NAME = (os.environ.get("SPIDERSYN_BOT_NAME") or CFG.get("BOT_NAME") or CFG.get("NAME") or "").strip() or "#BOT"
 API_BASE = (
     os.environ.get("SPIDERSYN_API_BASE")
     or os.environ.get("API_BASE")
@@ -39,13 +40,15 @@ INTERNAL_API_KEY = (
     or ""
 ).strip()
 
-_admin_raw = CFG.get("ADMIN_ID")
+_admin_raw = os.environ.get("SPIDERSYN_ADMIN_ID") or os.environ.get("ADMIN_ID") or CFG.get("ADMIN_ID")
 if isinstance(_admin_raw, list):
-    ADMIN_IDS = {int(x) for x in _admin_raw if str(x).isdigit()}
+    _admin_values = _admin_raw
 elif _admin_raw is None:
-    ADMIN_IDS = set()
+    _admin_values = []
 else:
-    ADMIN_IDS = {int(_admin_raw)} if str(_admin_raw).isdigit() else set()
+    _admin_values = str(_admin_raw).replace(",", " ").split()
+ADMIN_IDS = {int(x) for x in _admin_values if str(x).strip().isdigit()}
+_SETTINGS_CACHE = {"ts": 0.0, "data": None}
 
 
 def _fetch_json(url: str, timeout: int = 20):
@@ -137,6 +140,27 @@ _ALLOWED_ROLES = {"FUNDADOR", "CO-FUNDADOR", "SELLER"}
 
 def _get_user_info(id_tg: str):
     return _fetch_json(f"{API_BASE}/tg_info?ID_TG={_urlparse.quote(id_tg)}")
+
+
+def _get_remote_settings() -> dict:
+    now = time.monotonic()
+    if _SETTINGS_CACHE["data"] is not None and now - float(_SETTINGS_CACHE["ts"]) < 30:
+        return _SETTINGS_CACHE["data"]
+    if not API_BASE:
+        return {}
+    st, js = _fetch_json(f"{API_BASE}/bot_catalog", timeout=12)
+    if st == 200 and js.get("status") == "ok":
+        data = ((js.get("data") or {}).get("settings") or {})
+        _SETTINGS_CACHE["ts"] = now
+        _SETTINGS_CACHE["data"] = data
+        return data
+    return {}
+
+
+def _bot_brand() -> str:
+    settings = _get_remote_settings()
+    raw = settings.get("BOT_NAME") or settings.get("NAME") or BOT_NAME or "#BOT"
+    return str(raw).strip() or "#BOT"
 
 
 def _is_authorized_viewer(viewer_id: int, viewer_info: dict) -> bool:
@@ -325,7 +349,7 @@ async def compras_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     filas = js_c.get("data", []) or []
 
-    pretty_bot = (BOT_NAME or "#BOT").strip()
+    pretty_bot = _bot_brand()
     data_bytes = _build_compras_txt(pretty_bot, target_id, filas)
     filename = f"compras_{target_id}.txt"
 

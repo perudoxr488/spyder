@@ -193,6 +193,13 @@
                         <option value="STANDARD" {% if user.plan == 'STANDARD' %}selected{% endif %}>STANDARD</option>
                         <option value="PREMIUM" {% if user.plan == 'PREMIUM' %}selected{% endif %}>PREMIUM</option>
                       </select>
+                      <select name="rol_tg">
+                        <option value="FREE" {% if user.rol_tg == 'FREE' %}selected{% endif %}>FREE</option>
+                        <option value="CLIENTE" {% if user.rol_tg == 'CLIENTE' %}selected{% endif %}>CLIENTE</option>
+                        <option value="SELLER" {% if user.rol_tg == 'SELLER' %}selected{% endif %}>SELLER</option>
+                        <option value="CO-FUNDADOR" {% if user.rol_tg == 'CO-FUNDADOR' %}selected{% endif %}>CO-FUNDADOR</option>
+                        <option value="FUNDADOR" {% if user.rol_tg == 'FUNDADOR' %}selected{% endif %}>FUNDADOR</option>
+                      </select>
                       <select name="estado">
                         <option value="ACTIVO" {% if user.estado == 'ACTIVO' %}selected{% endif %}>ACTIVO</option>
                         <option value="BANEADO" {% if user.estado == 'BANEADO' %}selected{% endif %}>BANEADO</option>

@@ -88,6 +88,21 @@ def request_value(name: str, default=None):
             return payload.get(name)
     return request.values.get(name, default)
 
+
+def configured_admin_ids() -> set[str]:
+    raw = (
+        os.environ.get("SPIDERSYN_ADMIN_ID")
+        or os.environ.get("ADMIN_ID")
+        or CFG.get("ADMIN_ID")
+    )
+    if isinstance(raw, list):
+        values = raw
+    elif raw is None:
+        values = []
+    else:
+        values = str(raw).replace(",", " ").split()
+    return {str(value).strip() for value in values if str(value).strip()}
+
 # -------------------------
 # Utils
 # -------------------------
@@ -414,6 +429,41 @@ def init_panel_settings_db():
             ON CONFLICT(key) DO NOTHING
             """,
             (key, value),
+        )
+    conn.commit()
+    conn.close()
+
+
+def sync_owner_users():
+    admin_ids = configured_admin_ids()
+    if not admin_ids:
+        return
+    owner_exp = "2099-12-31T23:59:59Z"
+    conn = get_conn(DB_PATH)
+    cur = conn.cursor()
+    for admin_id in admin_ids:
+        cur.execute(
+            """
+            INSERT INTO usuarios (
+                id_tg, rol_tg, fecha_register_tg, creditos, plan, estado,
+                fecha_caducidad, rol_web, rol_wsp, antispam
+            )
+            VALUES (?, 'FUNDADOR', ?, 999999, 'PREMIUM', 'ACTIVO', ?, 'FUNDADOR', 'FUNDADOR', 0)
+            ON CONFLICT(id_tg) DO UPDATE SET
+                rol_tg = 'FUNDADOR',
+                rol_web = 'FUNDADOR',
+                rol_wsp = 'FUNDADOR',
+                plan = 'PREMIUM',
+                estado = 'ACTIVO',
+                antispam = 0,
+                creditos = CASE WHEN COALESCE(creditos, 0) < 999999 THEN 999999 ELSE creditos END,
+                fecha_caducidad = CASE
+                    WHEN fecha_caducidad IS NULL OR fecha_caducidad = '' OR fecha_caducidad < ?
+                    THEN ?
+                    ELSE fecha_caducidad
+                END
+            """,
+            (admin_id, now_iso(), owner_exp, owner_exp, owner_exp),
         )
     conn.commit()
     conn.close()
@@ -1023,15 +1073,15 @@ def init_compras_db():
     conn = get_conn(COMPRAS_DB_PATH)
     cur = conn.cursor()
 
-    # Ver si existe y si el esquema coincide
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='compras';")
     exists = cur.fetchone() is not None
 
     recreate = False
+    cols = []
     if exists:
         cur.execute("PRAGMA table_info(compras);")
         cols = [r[1] for r in cur.fetchall()]
-        desired = ["ID_TG", "VENDEDOR", "FECHA", "COMPRO"]
+        desired = ["ID", "ID_TG", "VENDEDOR", "FECHA", "COMPRO"]
         if cols != desired:
             recreate = True
     else:
@@ -1041,7 +1091,8 @@ def init_compras_db():
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS compras_new (
-                ID_TG TEXT PRIMARY KEY,
+                ID INTEGER PRIMARY KEY AUTOINCREMENT,
+                ID_TG TEXT,
                 VENDEDOR TEXT,
                 FECHA TEXT,
                 COMPRO TEXT
@@ -1056,7 +1107,7 @@ def init_compras_db():
             select_compro = "COMPRO" if "COMPRO" in old_cols else "''"
             cur.execute(
                 f"""
-                INSERT OR REPLACE INTO compras_new (ID_TG, VENDEDOR, FECHA, COMPRO)
+                INSERT INTO compras_new (ID_TG, VENDEDOR, FECHA, COMPRO)
                 SELECT {select_id}, {select_vendedor}, {select_fecha}, {select_compro}
                 FROM compras
                 """
@@ -1576,12 +1627,12 @@ def compras():
 
     fecha = now_iso()  # fecha automática
 
-    # Guardar/actualizar compra del usuario (REPLACE por PK ID_TG)
+    # Guardar cada compra como evento independiente.
     conn = get_conn(COMPRAS_DB_PATH)
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT OR REPLACE INTO compras (ID_TG, VENDEDOR, FECHA, COMPRO)
+        INSERT INTO compras (ID_TG, VENDEDOR, FECHA, COMPRO)
         VALUES (?, ?, ?, ?)
         """,
         (id_tg, id_vendedor, fecha, cantidad)
@@ -1953,10 +2004,10 @@ def compras_id():
     conn = get_conn(COMPRAS_DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    cur.execute("SELECT ID_TG, VENDEDOR, FECHA, COMPRO FROM compras WHERE ID_TG = ? ORDER BY FECHA DESC", (id_tg,))
+    cur.execute("SELECT ID, ID_TG, VENDEDOR, FECHA, COMPRO FROM compras WHERE ID_TG = ? ORDER BY FECHA DESC, ID DESC", (id_tg,))
     rows = cur.fetchall()
     conn.close()
-    data = [{"ID_TG": r["ID_TG"], "ID_VENDEDOR": r["VENDEDOR"], "FECHA": r["FECHA"], "CANTIDAD": r["COMPRO"]} for r in rows]
+    data = [{"ID": r["ID"], "ID_TG": r["ID_TG"], "ID_VENDEDOR": r["VENDEDOR"], "FECHA": r["FECHA"], "CANTIDAD": r["COMPRO"]} for r in rows]
     msg = "Compras listadas" if data else "Sin compras para este ID_TG"
     return jsonify({"status": "ok", "message": msg, "data": data}), 200
 
@@ -1971,10 +2022,10 @@ def hist_venta_id():
     conn = get_conn(COMPRAS_DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    cur.execute("SELECT ID_TG, VENDEDOR, FECHA, COMPRO FROM compras WHERE VENDEDOR = ? ORDER BY FECHA DESC", (id_vendedor,))
+    cur.execute("SELECT ID, ID_TG, VENDEDOR, FECHA, COMPRO FROM compras WHERE VENDEDOR = ? ORDER BY FECHA DESC, ID DESC", (id_vendedor,))
     rows = cur.fetchall()
     conn.close()
-    data = [{"ID_TG": r["ID_TG"], "ID_VENDEDOR": r["VENDEDOR"], "FECHA": r["FECHA"], "CANTIDAD": r["COMPRO"]} for r in rows]
+    data = [{"ID": r["ID"], "ID_TG": r["ID_TG"], "ID_VENDEDOR": r["VENDEDOR"], "FECHA": r["FECHA"], "CANTIDAD": r["COMPRO"]} for r in rows]
     msg = "Ventas listadas" if data else "Sin ventas para este vendedor"
     return jsonify({"status": "ok", "message": msg, "data": data}), 200
 
@@ -2368,6 +2419,7 @@ def admin_save_user():
         return gate
     id_tg = (request.form.get("id_tg") or "").strip()
     plan = (request.form.get("plan") or "FREE").strip().upper()
+    rol_tg = (request.form.get("rol_tg") or "FREE").strip().upper()
     estado = (request.form.get("estado") or "ACTIVO").strip().upper()
     try:
         creditos = max(0, int(request.form.get("creditos") or 0))
@@ -2381,6 +2433,8 @@ def admin_save_user():
         return redirect(url_for("admin_panel", section="usuarios", flash="Usuario inválido."))
     if plan not in PLANES_VALIDOS:
         plan = "FREE"
+    if rol_tg not in ROLES_VALIDOS:
+        rol_tg = "FREE"
     if estado not in {"ACTIVO", "BANEADO"}:
         estado = "ACTIVO"
     conn = get_conn(DB_PATH)
@@ -2388,10 +2442,10 @@ def admin_save_user():
     cur.execute(
         """
         UPDATE usuarios
-        SET creditos = ?, plan = ?, estado = ?, antispam = ?
+        SET creditos = ?, plan = ?, rol_tg = ?, estado = ?, antispam = ?
         WHERE id_tg = ?
         """,
-        (creditos, plan, estado, antispam, id_tg),
+        (creditos, plan, rol_tg, estado, antispam, id_tg),
     )
     conn.commit()
     conn.close()
@@ -2728,6 +2782,7 @@ def login_web():
 # -------------------------
 def init_app_databases():
     init_main_db()
+    sync_owner_users()
     init_hist_db()
     init_compras_db()
     init_keys_db()
