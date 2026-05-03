@@ -11,11 +11,13 @@ import os
 import json
 from flask_cors import CORS, cross_origin
 from werkzeug.security import check_password_hash, generate_password_hash
+from storage import db_path
 
-DB_PATH = "multiplataforma.db"
-HIST_DB_PATH = "historial.db"
-COMPRAS_DB_PATH = "compras.db"
-KEYS_DB_PATH = "keys.db"
+DB_PATH = db_path("multiplataforma.db")
+HIST_DB_PATH = db_path("historial.db")
+COMPRAS_DB_PATH = db_path("compras.db")
+KEYS_DB_PATH = db_path("keys.db")
+REQUESTS_DB_PATH = db_path("requests.db")
 CONFIG_FILE_PATH = "config.json"
 
 app = Flask(__name__)
@@ -678,7 +680,7 @@ def get_dashboard_snapshot():
     except Exception:
         pass
     try:
-        conn = get_conn("requests.db")
+        conn = get_conn(REQUESTS_DB_PATH)
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM requests WHERE status = 'pending'")
         data["pendientes"] = cur.fetchone()[0]
@@ -699,7 +701,7 @@ def get_dashboard_snapshot():
 def get_request_items(status: str | None = None, limit: int = 50):
     items = []
     try:
-        conn = get_conn("requests.db")
+        conn = get_conn(REQUESTS_DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         if status:
@@ -735,7 +737,7 @@ def get_request_items(status: str | None = None, limit: int = 50):
 def get_request_templates():
     items = []
     try:
-        conn = get_conn("requests.db")
+        conn = get_conn(REQUESTS_DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute("SELECT key, text, billable FROM request_templates ORDER BY key")
@@ -1053,7 +1055,7 @@ def get_user_by_web_token(token):
 
 def update_user_profile(user_id, credits, days_valid):
     """Actualiza los créditos y días válidos del usuario en su perfil en multplatatforma.db."""
-    conn = sqlite3.connect("multiplataforma.db")  # Conectar a la base de datos de clientes
+    conn = sqlite3.connect(DB_PATH)  # Conectar a la base de datos de clientes
     cursor = conn.cursor()
 
     # Actualizar los créditos y días válidos del usuario
@@ -2289,7 +2291,7 @@ def admin_save_request_template():
     billable = 1 if (request.form.get("billable") or "0") == "1" else 0
     if not key or not text:
         return redirect(url_for("admin_panel", section="solicitudes", flash="Plantilla inválida."))
-    conn = get_conn("requests.db")
+    conn = get_conn(REQUESTS_DB_PATH)
     cur = conn.cursor()
     cur.execute(
         """
@@ -2452,7 +2454,7 @@ def admin_import_panel():
         )
     conn.commit()
     conn.close()
-    req_conn = get_conn("requests.db")
+    req_conn = get_conn(REQUESTS_DB_PATH)
     req_cur = req_conn.cursor()
     for tpl in payload.get("request_templates", []):
         req_cur.execute(

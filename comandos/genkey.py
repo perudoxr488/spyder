@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes
+from storage import db_path
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE_PATH = os.path.join(BASE_DIR, "config.json")
@@ -28,10 +29,10 @@ else:
 
 # -------------------- CONEXIONES A DB --------------------
 def connect_users():
-    return sqlite3.connect("multiplataforma.db")
+    return sqlite3.connect(db_path("multiplataforma.db"))
 
 def connect_keys():
-    return sqlite3.connect("keys.db")
+    return sqlite3.connect(db_path("keys.db"))
 
 # -------------------- GENERAR KEYS --------------------
 def generar_key():

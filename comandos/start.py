@@ -3,10 +3,11 @@ import json
 import sqlite3
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
+from storage import db_path
 
 # --- Cargar config.json ---
 CONFIG_FILE_PATH = 'config.json'
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "multiplataforma.db")
+DB_PATH = db_path("multiplataforma.db")
 cfg = {}
 if os.path.exists(CONFIG_FILE_PATH):
     try:

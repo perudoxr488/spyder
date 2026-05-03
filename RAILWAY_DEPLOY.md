@@ -28,6 +28,14 @@ ADMIN_ID=tu_id_de_telegram
 TOKEN_BOT=tu_token_del_bot
 ```
 
+Si usas SQLite en Railway, crea un Volume y monta el servicio en una ruta fija. Luego agrega:
+
+```text
+SPIDERSYN_DATA_DIR=/data
+```
+
+Con esa variable, las bases `multiplataforma.db`, `historial.db`, `compras.db`, `keys.db` y `requests.db` se guardan en `/data`.
+
 Solo en `web`:
 
 ```text
@@ -43,6 +51,8 @@ API_BASE=https://tu-servicio-web.up.railway.app
 **Notas**
 
 - `API_BASE` del worker debe apuntar al dominio público del servicio `web`.
+- Para no perder SQLite en redeploy, `SPIDERSYN_DATA_DIR` debe apuntar a un Railway Volume.
+- Si `web` y `worker` corren separados, SQLite no es ideal para datos compartidos entre ambos servicios. Para producción estable, migra a PostgreSQL/MySQL o mueve las escrituras del worker a endpoints del `web`.
 - No dependas de `config.json` en producción para secretos.
 - Si mantienes `config.json`, úsalo solo como respaldo local.
 - Si activas `PANEL_PUBLIC=true`, el panel quedará accesible por web pero protegido por login.

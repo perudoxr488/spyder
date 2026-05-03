@@ -4,10 +4,11 @@ import sqlite3
 from urllib import request as _urlreq
 from urllib import parse as _urlparse
 from urllib.error import HTTPError, URLError
+from storage import db_path
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE_PATH = os.path.join(BASE_DIR, "config.json")
-DB_PATH = os.path.join(BASE_DIR, "multiplataforma.db")
+DB_PATH = db_path("multiplataforma.db")
 
 CFG = {}
 try:

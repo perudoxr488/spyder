@@ -11,10 +11,11 @@ from urllib.error import HTTPError, URLError
 
 from telegram import Update
 from telegram.ext import ContextTypes
+from storage import db_path
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE_PATH = os.path.join(BASE_DIR, "config.json")
-DB_PATH = os.path.join(BASE_DIR, "multiplataforma.db")
+DB_PATH = db_path("multiplataforma.db")
 
 BOT_NAME = ""
 API_BASE = ""

@@ -5,10 +5,11 @@ import math
 import sqlite3
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
+from storage import db_path
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE_PATH = os.path.join(BASE_DIR, "config.json")
-DB_PATH = os.path.join(BASE_DIR, "multiplataforma.db")
+DB_PATH = db_path("multiplataforma.db")
 PAGE_SIZE = 5
 DEFAULT_DETAILS = {
     "nm": {"usage_hint": "/nm nombre|paterno|materno", "description": "Busqueda por nombres con DNI y edad."},
