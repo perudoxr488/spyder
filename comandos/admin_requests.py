@@ -46,6 +46,7 @@ INTERNAL_API_KEY = (
     or ""
 ).strip()
 HISTORIAL_ENDPOINT = f"{API_BASE}/historial"
+REQUEST_SYNC_ENDPOINT = f"{API_BASE}/internal/request/upsert"
 
 DEFAULT_QUICK_TEMPLATES = {
     "nodata": "《⚠️》 No se encontró información.",
@@ -115,6 +116,88 @@ def _log_historial(user_id: int, command: str, payload: str):
         pass
 
 
+def _request_row_to_payload(row) -> dict:
+    (
+        request_id,
+        user_id,
+        username,
+        command,
+        payload,
+        status,
+        admin_msg_id,
+        cost,
+        charged,
+        delivery_count,
+        created_at,
+        resolved_at,
+        resolved_by,
+        resolution_note,
+    ) = row
+    return {
+        "id": request_id,
+        "user_id": user_id,
+        "username": username or "",
+        "command": command or "",
+        "payload": payload or "",
+        "status": status or "pending",
+        "admin_msg_id": admin_msg_id,
+        "cost": int(cost or 1),
+        "charged": int(charged or 0),
+        "delivery_count": int(delivery_count or 0),
+        "created_at": created_at or now_iso(),
+        "resolved_at": resolved_at or None,
+        "resolved_by": resolved_by or None,
+        "resolution_note": resolution_note or "",
+    }
+
+
+def _sync_request_payload(payload: dict):
+    if not API_BASE:
+        return
+    try:
+        _fetch_json(REQUEST_SYNC_ENDPOINT, timeout=8, method="POST", payload=payload)
+    except Exception:
+        pass
+
+
+def _sync_request_by_id(request_id: int):
+    if not API_BASE:
+        return
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        row = _get_request_by_id(c, request_id)
+        conn.close()
+        if row:
+            _sync_request_payload(_request_row_to_payload(row))
+    except Exception:
+        pass
+
+
+def sync_recent_requests_to_api(limit: int = 300):
+    if not API_BASE:
+        return
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute(
+            """
+            SELECT id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count,
+                   created_at, resolved_at, resolved_by, resolution_note
+            FROM requests
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = c.fetchall()
+        conn.close()
+        for row in rows:
+            _sync_request_payload(_request_row_to_payload(row))
+    except Exception:
+        pass
+
+
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -178,6 +261,7 @@ def init_db():
         )
     conn.commit()
     conn.close()
+    sync_recent_requests_to_api(limit=300)
 
 
 def _get_request_by_id(cursor, request_id: int):
@@ -622,6 +706,7 @@ async def _update_admin_message_markup(context: ContextTypes.DEFAULT_TYPE, reque
     conn.close()
     if not row:
         return
+    _sync_request_payload(_request_row_to_payload(row))
     _, _, _, _, _, status, admin_msg_id, _, _, _, _, _, _, _ = row
     admin_chat_id = primary_admin_id()
     if not admin_chat_id or not admin_msg_id:
@@ -663,6 +748,7 @@ async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     request_id = c.lastrowid
     conn.commit()
     conn.close()
+    _sync_request_by_id(request_id)
     _log_historial(user.id, command, payload)
 
     await message.reply_text(
@@ -698,6 +784,7 @@ async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     c.execute("UPDATE requests SET admin_msg_id=? WHERE id=?", (sent.message_id, request_id))
     conn.commit()
     conn.close()
+    _sync_request_by_id(request_id)
 
 
 async def reply_request(update: Update, context: ContextTypes.DEFAULT_TYPE):

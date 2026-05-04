@@ -3776,6 +3776,65 @@ def internal_db_backup_zip():
     return build_db_backup_response()
 
 
+@app.route("/internal/request/upsert", methods=["POST"])
+def internal_request_upsert():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
+    payload = request.get_json(silent=True) or {}
+    try:
+        request_id = int(payload.get("id") or 0)
+    except Exception:
+        request_id = 0
+    if request_id <= 0:
+        return jsonify({"status": "error", "message": "id inválido"}), 400
+    init_requests_db()
+    conn = get_conn(REQUESTS_DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO requests (
+            id, user_id, username, command, payload, status, admin_msg_id, cost,
+            charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            user_id = excluded.user_id,
+            username = excluded.username,
+            command = excluded.command,
+            payload = excluded.payload,
+            status = excluded.status,
+            admin_msg_id = excluded.admin_msg_id,
+            cost = excluded.cost,
+            charged = excluded.charged,
+            delivery_count = excluded.delivery_count,
+            created_at = excluded.created_at,
+            resolved_at = excluded.resolved_at,
+            resolved_by = excluded.resolved_by,
+            resolution_note = excluded.resolution_note
+        """,
+        (
+            request_id,
+            payload.get("user_id"),
+            payload.get("username") or "",
+            payload.get("command") or "",
+            payload.get("payload") or "",
+            payload.get("status") or "pending",
+            payload.get("admin_msg_id"),
+            int(payload.get("cost") or 1),
+            int(payload.get("charged") or 0),
+            int(payload.get("delivery_count") or 0),
+            payload.get("created_at") or now_iso(),
+            payload.get("resolved_at") or None,
+            payload.get("resolved_by") or None,
+            payload.get("resolution_note") or "",
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok", "message": "Solicitud sincronizada", "id": request_id}), 200
+
+
 @app.route("/admin/export", methods=["GET"])
 def admin_export_panel():
     gate = require_panel_login()
