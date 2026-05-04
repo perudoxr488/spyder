@@ -908,7 +908,7 @@
             <table>
               <thead><tr><th>DB</th><th>Existe</th><th>Tamaño</th><th>En data dir</th></tr></thead>
               <tbody>
-                {% for item in storage.items %}
+                {% for item in storage['items'] %}
                 <tr>
                   <td><strong>{{ item.name }}</strong><div class="small">{{ item.path }}</div></td>
                   <td>{% if item.exists %}<span class="badge ok">Sí</span>{% else %}<span class="badge off">No</span>{% endif %}</td>
