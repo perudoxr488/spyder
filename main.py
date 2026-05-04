@@ -79,7 +79,7 @@ from comandos.sunat import sunat_command
 from comandos.seeker import seeker_command
 from comandos.facial import facial_command
 from comandos.start import start_command
-from comandos.buy import buy_command
+from comandos.buy import buy_command, buy_callback
 from comandos.me import me_command
 from comandos.register import register_command
 from comandos.terminos import terminos_command
@@ -267,6 +267,7 @@ def main():
     # -------------------- CMDS Y MENU ADMIN --------------------
     add_command_handler(application, "cmds", cmds_command)
     application.add_handler(CallbackQueryHandler(cmds_callback, pattern="^cmds_"))
+    application.add_handler(CallbackQueryHandler(buy_callback, pattern="^buy:"))
     application.add_handler(CallbackQueryHandler(admin_requests.request_buttons_callback, pattern="^adminreq:"))
     add_command_handler(application, "cmdsadmin", cmdsadmin_command)
     

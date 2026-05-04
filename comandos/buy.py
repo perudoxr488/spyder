@@ -163,51 +163,58 @@ def _get_panel_settings():
     return data
 
 
-def _build_buy_text(bot_arroba: str) -> str:
+def _build_buy_text(bot_arroba: str, section: str = "all") -> str:
     groups = _get_buy_groups()
     parts = [
         "✨ <b>PLANES Y TARIFAS</b> ✨",
         f"⚡️ <i>By:</i> <b>{bot_arroba}</b>",
-        "",
-        "💰 <b>PLAN POR CREDITOS</b> 💰",
-        "",
     ]
 
-    if groups["credits"]:
-        for group in groups["credits"]:
-            parts.append(f"⟦{group['badge']}⟧ <b>{group['title']} ({group['subtitle']})</b>")
-            for item in group["items"]:
-                parts.append(f"• {item}")
-            parts.append("")
-    else:
-        parts.append("Sin paquetes de créditos configurados.")
-        parts.append("")
+    show_credits = section in {"all", "credits"}
+    show_days = section in {"all", "days"}
 
-    parts.append("⏳ <b>PLAN POR DIAS</b> ⏳")
-    parts.append("")
-
-    if groups["days"]:
-        for group in groups["days"]:
-            parts.append(f"⟦{group['badge']}⟧ <b>{group['title']} ({group['subtitle']})</b>")
-            for item in group["items"]:
-                parts.append(f"• {item}")
-            parts.append("")
-    else:
-        parts.append("Sin paquetes por días configurados.")
+    if show_credits:
         parts.append("")
+        parts.append("💰 <b>PLAN POR CREDITOS</b> 💰")
+        parts.append("")
+        if groups["credits"]:
+            for group in groups["credits"]:
+                parts.append(f"⟦{group['badge']}⟧ <b>{group['title']} ({group['subtitle']})</b>")
+                for item in group["items"]:
+                    parts.append(f"• {item}")
+                parts.append("")
+        else:
+            parts.append("Sin paquetes de créditos configurados.")
+            parts.append("")
+
+    if show_days:
+        parts.append("")
+        parts.append("⏳ <b>PLAN POR DIAS</b> ⏳")
+        parts.append("")
+        if groups["days"]:
+            for group in groups["days"]:
+                parts.append(f"⟦{group['badge']}⟧ <b>{group['title']} ({group['subtitle']})</b>")
+                for item in group["items"]:
+                    parts.append(f"• {item}")
+                parts.append("")
+        else:
+            parts.append("Sin paquetes por días configurados.")
+            parts.append("")
 
     parts.append("[⚠️] <b>IMPORTANTE</b> ➩ Antes de comprar leer los terminos y condiciones usa /terminos")
     return "\n".join(parts).strip()
 
 
-async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    me = await context.bot.get_me()
-    bot_arroba = f"@{me.username}" if non_empty(me.username) else "bot"
-    texto = _build_buy_text(bot_arroba)
-    settings = _get_panel_settings()
+def _build_buy_keyboard(settings: dict) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton("Todos", callback_data="buy:all"),
+            InlineKeyboardButton("Créditos", callback_data="buy:credits"),
+            InlineKeyboardButton("Días", callback_data="buy:days"),
+        ]
+    ]
 
     buttons = []
-
     owner_text = settings.get("BT_OWNER") or cfg.get("BT_OWNER")
     owner_link = settings.get("OWNER_LINK") or cfg.get("OWNER_LINK")
     if non_empty(owner_text) and non_empty(owner_link):
@@ -223,11 +230,18 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if non_empty(text) and non_empty(url):
             buttons.append(btn(f"[❄️] {text}", url))
 
-    rows = []
     for i in range(0, len(buttons), 2):
         rows.append(buttons[i:i + 2])
+    return InlineKeyboardMarkup(rows)
 
-    keyboard = InlineKeyboardMarkup(rows) if rows else None
+
+async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    me = await context.bot.get_me()
+    bot_arroba = f"@{me.username}" if non_empty(me.username) else "bot"
+    texto = _build_buy_text(bot_arroba)
+    settings = _get_panel_settings()
+
+    keyboard = _build_buy_keyboard(settings)
     ft_buy = settings.get("FT_BUY") or (cfg.get("LOGO") or {}).get("FT_BUY")
 
     if non_empty(ft_buy):
@@ -245,3 +259,21 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=keyboard,
             reply_to_message_id=update.message.message_id,
         )
+
+
+async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    section = (query.data or "buy:all").split(":", 1)[-1]
+    if section not in {"all", "credits", "days"}:
+        section = "all"
+    me = await context.bot.get_me()
+    bot_arroba = f"@{me.username}" if non_empty(me.username) else "bot"
+    texto = _build_buy_text(bot_arroba, section=section)
+    keyboard = _build_buy_keyboard(_get_panel_settings())
+    if query.message and query.message.photo:
+        await query.message.edit_caption(caption=texto, parse_mode="HTML", reply_markup=keyboard)
+    elif query.message:
+        await query.message.edit_text(text=texto, parse_mode="HTML", reply_markup=keyboard)

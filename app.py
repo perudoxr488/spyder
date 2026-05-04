@@ -1589,6 +1589,19 @@ def require_panel_login():
         return redirect(url_for("panel_login", next=request.full_path if request.query_string else request.path))
     return None
 
+
+def panel_current_role() -> str:
+    return (session.get("panel_role") or "FUNDADOR").strip().upper()
+
+
+def require_panel_owner():
+    gate = require_panel_login()
+    if gate:
+        return gate
+    if panel_current_role() != "FUNDADOR":
+        return redirect(url_for("admin_panel", section="sistema", flash="Solo el FUNDADOR puede hacer esa acción."))
+    return None
+
 def init_hist_db():
     conn = get_conn(HIST_DB_PATH)
     cur = conn.cursor()
@@ -3427,7 +3440,7 @@ def admin_cleanup_history():
 
 @app.route("/admin/password/update", methods=["POST"])
 def admin_update_panel_password():
-    gate = require_panel_login()
+    gate = require_panel_owner()
     if gate:
         return gate
     current = request.form.get("current_password") or ""
@@ -3684,6 +3697,7 @@ def panel_login():
         if username == PANEL_USER and verify_panel_password(password):
             session["panel_auth"] = True
             session["panel_user"] = username
+            session["panel_role"] = "FUNDADOR"
             PANEL_LOGIN_ATTEMPTS.pop(ip, None)
             log_audit_event("panel.login", username, "success", actor=username)
             return redirect(next_url)
@@ -3699,6 +3713,7 @@ def panel_logout():
     log_audit_event("panel.logout", session.get("panel_user") or PANEL_USER, "logout")
     session.pop("panel_auth", None)
     session.pop("panel_user", None)
+    session.pop("panel_role", None)
     return redirect(url_for("panel_login"))
 
 @app.route("/historial_id", methods=["GET"])
