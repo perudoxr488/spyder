@@ -87,6 +87,7 @@
         <div>
           <h1>Panel de Comandos</h1>
           <p class="muted">Aquí puedes gestionar catálogo, info visible, precios, estados y paquetes de compra sin tocar Python.</p>
+          <p class="small">Sesión: <strong>{{ session.get('panel_user') or 'admin' }}</strong> · Rol: <strong>{{ panel_role }}</strong></p>
         </div>
         <div class="toolbar-right">
           <form method="get" action="{{ url_for('admin_panel') }}" class="search-form">
@@ -101,34 +102,16 @@
       {% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
       <p class="small">Ruta local sugerida: <code>http://127.0.0.1:8080/admin/panel</code></p>
       <div class="subnav">
-        <a href="{{ url_for('admin_panel', section='resumen') }}">Resumen</a>
-        <a href="{{ url_for('admin_panel', section='buscar') }}">Buscar</a>
-        <a href="{{ url_for('admin_panel', section='categorias') }}">Categorías</a>
-        <a href="{{ url_for('admin_panel', section='comandos') }}">Comandos</a>
-        <a href="{{ url_for('admin_panel', section='buy') }}">/buy</a>
-        <a href="{{ url_for('admin_panel', section='usuarios') }}">Usuarios</a>
-        <a href="{{ url_for('admin_panel', section='compras') }}">Compras</a>
-        <a href="{{ url_for('admin_panel', section='historial') }}">Historial</a>
-        <a href="{{ url_for('admin_panel', section='vendedores') }}">Vendedores</a>
-        <a href="{{ url_for('admin_panel', section='ajustes') }}">Ajustes</a>
+        {% for nav in panel_nav_items[:9] %}
+        <a href="{{ url_for('admin_panel', section=nav.section) }}">{{ nav.label }}</a>
+        {% endfor %}
       </div>
     </div>
     <div class="layout">
       <div class="sidebar">
-        <a class="side-link {% if active_section == 'resumen' %}active{% endif %}" href="{{ url_for('admin_panel', section='resumen') }}">Resumen</a>
-        <a class="side-link {% if active_section == 'buscar' %}active{% endif %}" href="{{ url_for('admin_panel', section='buscar') }}">Buscar</a>
-        <a class="side-link {% if active_section == 'categorias' %}active{% endif %}" href="{{ url_for('admin_panel', section='categorias') }}">Categorías</a>
-        <a class="side-link {% if active_section == 'comandos' %}active{% endif %}" href="{{ url_for('admin_panel', section='comandos') }}">Comandos</a>
-        <a class="side-link {% if active_section == 'buy' %}active{% endif %}" href="{{ url_for('admin_panel', section='buy') }}">Paquetes /buy</a>
-        <a class="side-link {% if active_section == 'usuarios' %}active{% endif %}" href="{{ url_for('admin_panel', section='usuarios') }}">Usuarios</a>
-        <a class="side-link {% if active_section == 'compras' %}active{% endif %}" href="{{ url_for('admin_panel', section='compras') }}">Compras</a>
-        <a class="side-link {% if active_section == 'historial' %}active{% endif %}" href="{{ url_for('admin_panel', section='historial') }}">Historial</a>
-        <a class="side-link {% if active_section == 'vendedores' %}active{% endif %}" href="{{ url_for('admin_panel', section='vendedores') }}">Vendedores</a>
-        <a class="side-link {% if active_section == 'ajustes' %}active{% endif %}" href="{{ url_for('admin_panel', section='ajustes') }}">Ajustes Visuales</a>
-        <a class="side-link {% if active_section == 'solicitudes' %}active{% endif %}" href="{{ url_for('admin_panel', section='solicitudes') }}">Solicitudes</a>
-        <a class="side-link {% if active_section == 'herramientas' %}active{% endif %}" href="{{ url_for('admin_panel', section='herramientas') }}">Herramientas</a>
-        <a class="side-link {% if active_section == 'sistema' %}active{% endif %}" href="{{ url_for('admin_panel', section='sistema') }}">Sistema</a>
-        <a class="side-link {% if active_section == 'estadisticas' %}active{% endif %}" href="{{ url_for('admin_panel', section='estadisticas') }}">Estadísticas</a>
+        {% for nav in panel_nav_items %}
+        <a class="side-link {% if active_section == nav.section %}active{% endif %}" href="{{ url_for('admin_panel', section=nav.section) }}">{{ nav.label }}</a>
+        {% endfor %}
       </div>
       <div class="content">
       {% if active_section == 'resumen' %}
@@ -1187,6 +1170,61 @@
               <input name="confirm_password" type="password" minlength="8" required>
               <button type="submit">Cambiar clave</button>
             </form>
+          </div>
+          <div class="card">
+            <h2>Cuentas del panel</h2>
+            <p class="small">Solo FUNDADOR puede crear o editar accesos de CO-FUNDADOR, SELLER y SOPORTE.</p>
+            <form method="post" action="{{ url_for('admin_save_panel_account') }}">
+              <div class="inline">
+                <input name="username" placeholder="usuario_panel" required>
+                <input name="password" type="password" minlength="8" placeholder="clave inicial o nueva">
+              </div>
+              <div class="inline">
+                <select name="role">
+                  {% for role in panel_roles %}
+                  <option value="{{ role }}">{{ role }}</option>
+                  {% endfor %}
+                </select>
+                <select name="is_active">
+                  <option value="1">Activo</option>
+                  <option value="0">Inactivo</option>
+                </select>
+              </div>
+              <button type="submit">Guardar cuenta</button>
+            </form>
+            <table style="margin-top:14px;">
+              <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Editar</th></tr></thead>
+              <tbody>
+                {% for account in panel_accounts %}
+                <tr>
+                  <td><strong>{{ account.username }}</strong><div class="small">{{ account.updated_at or account.created_at or '—' }}</div></td>
+                  <td>{{ account.role }}</td>
+                  <td>{% if account.is_active %}<span class="badge ok">Activo</span>{% else %}<span class="badge off">Inactivo</span>{% endif %}</td>
+                  <td>
+                    <form method="post" action="{{ url_for('admin_save_panel_account') }}">
+                      <input type="hidden" name="username" value="{{ account.username }}">
+                      <div class="inline">
+                        <select name="role">
+                          {% for role in panel_roles %}
+                          <option value="{{ role }}" {% if account.role == role %}selected{% endif %}>{{ role }}</option>
+                          {% endfor %}
+                        </select>
+                        <select name="is_active">
+                          <option value="1" {% if account.is_active %}selected{% endif %}>Activo</option>
+                          <option value="0" {% if not account.is_active %}selected{% endif %}>Inactivo</option>
+                        </select>
+                      </div>
+                      <input name="password" type="password" minlength="8" placeholder="Nueva clave opcional">
+                      <button type="submit">Actualizar</button>
+                    </form>
+                  </td>
+                </tr>
+                {% endfor %}
+                {% if not panel_accounts %}
+                <tr><td colspan="4">Aún no hay cuentas extra.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
           </div>
           <div class="card">
             <h2>Limpieza de historial</h2>

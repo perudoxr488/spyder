@@ -1213,6 +1213,40 @@ def _date_bounds(date_from: str = "", date_to: str = ""):
 
 
 PURCHASE_STATUSES = {"PENDIENTE", "PAGADA", "ENTREGADA", "CANCELADA"}
+PANEL_ROLES = {"FUNDADOR", "CO-FUNDADOR", "SELLER", "SOPORTE"}
+PANEL_SECTION_ACCESS = {
+    "resumen": PANEL_ROLES,
+    "buscar": PANEL_ROLES,
+    "compras": {"FUNDADOR", "CO-FUNDADOR", "SELLER"},
+    "vendedores": {"FUNDADOR", "CO-FUNDADOR", "SELLER"},
+    "estadisticas": {"FUNDADOR", "CO-FUNDADOR", "SELLER"},
+    "usuarios": {"FUNDADOR", "CO-FUNDADOR", "SOPORTE"},
+    "usuario": {"FUNDADOR", "CO-FUNDADOR", "SELLER", "SOPORTE"},
+    "historial": {"FUNDADOR", "CO-FUNDADOR", "SOPORTE"},
+    "solicitudes": {"FUNDADOR", "CO-FUNDADOR", "SOPORTE"},
+    "categorias": {"FUNDADOR", "CO-FUNDADOR"},
+    "comandos": {"FUNDADOR", "CO-FUNDADOR"},
+    "buy": {"FUNDADOR", "CO-FUNDADOR"},
+    "ajustes": {"FUNDADOR", "CO-FUNDADOR"},
+    "herramientas": {"FUNDADOR", "CO-FUNDADOR"},
+    "sistema": {"FUNDADOR"},
+}
+PANEL_NAV_ITEMS = [
+    ("resumen", "Resumen"),
+    ("buscar", "Buscar"),
+    ("categorias", "Categorías"),
+    ("comandos", "Comandos"),
+    ("buy", "Paquetes /buy"),
+    ("usuarios", "Usuarios"),
+    ("compras", "Compras"),
+    ("historial", "Historial"),
+    ("vendedores", "Vendedores"),
+    ("ajustes", "Ajustes Visuales"),
+    ("solicitudes", "Solicitudes"),
+    ("herramientas", "Herramientas"),
+    ("sistema", "Sistema"),
+    ("estadisticas", "Estadísticas"),
+]
 
 
 def get_admin_purchases(user_id: str = "", vendor_id: str = "", date_from: str = "", date_to: str = "", kind: str = "", status: str = "", limit: int = 300):
@@ -1639,6 +1673,65 @@ def get_audit_logs(limit: int = 80):
         return []
 
 
+def init_panel_accounts_db():
+    conn = get_conn(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS panel_accounts (
+            username TEXT PRIMARY KEY,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'SOPORTE',
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_panel_account(username: str):
+    username = (username or "").strip()
+    if not username:
+        return None
+    try:
+        init_panel_accounts_db()
+        conn = get_conn(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT username, password_hash, role, is_active, created_at, updated_at FROM panel_accounts WHERE username = ?",
+            (username,),
+        )
+        row = cur.fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def get_panel_accounts():
+    try:
+        init_panel_accounts_db()
+        conn = get_conn(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT username, role, is_active, created_at, updated_at
+            FROM panel_accounts
+            ORDER BY role ASC, username ASC
+            """
+        )
+        rows = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
 def _csv_response(filename: str, rows: list[dict], fieldnames: list[str]):
     out = io.StringIO()
     writer = csv.DictWriter(out, fieldnames=fieldnames, extrasaction="ignore")
@@ -1675,6 +1768,26 @@ def require_panel_login():
 
 def panel_current_role() -> str:
     return (session.get("panel_role") or "FUNDADOR").strip().upper()
+
+
+def panel_can_access_section(section: str, role: str | None = None) -> bool:
+    role = (role or panel_current_role()).strip().upper()
+    return role in PANEL_SECTION_ACCESS.get(section, {"FUNDADOR"})
+
+
+def panel_nav_items_for_role(role: str | None = None):
+    role = (role or panel_current_role()).strip().upper()
+    return [{"section": section, "label": label} for section, label in PANEL_NAV_ITEMS if panel_can_access_section(section, role)]
+
+
+def require_panel_roles(*roles: str):
+    gate = require_panel_login()
+    if gate:
+        return gate
+    allowed = {role.strip().upper() for role in roles}
+    if panel_current_role() not in allowed:
+        return redirect(url_for("admin_panel", section="resumen", flash="No tienes permiso para esa acción."))
+    return None
 
 
 def require_panel_owner():
@@ -2828,6 +2941,9 @@ def admin_panel():
     active_section = (request.args.get("section") or "resumen").strip().lower()
     if active_section not in {"resumen", "buscar", "categorias", "comandos", "buy", "usuarios", "usuario", "compras", "historial", "vendedores", "ajustes", "solicitudes", "herramientas", "sistema", "estadisticas"}:
         active_section = "resumen"
+    panel_role = panel_current_role()
+    if not panel_can_access_section(active_section, panel_role):
+        return redirect(url_for("admin_panel", section="resumen", flash="No tienes permiso para esa sección."))
     categories = get_catalog_categories()
     commands = get_catalog_commands()
     settings = get_panel_settings()
@@ -2924,6 +3040,10 @@ def admin_panel():
         global_results=global_results,
         storage=get_storage_snapshot(),
         daily_backups=get_daily_backups(limit=10),
+        panel_role=panel_role,
+        panel_nav_items=panel_nav_items_for_role(panel_role),
+        panel_accounts=get_panel_accounts(),
+        panel_roles=sorted(PANEL_ROLES),
         history_cleanup_preview=get_history_cleanup_preview(),
         error_logs=get_error_logs(limit=50),
         audit_logs=get_audit_logs(limit=80),
@@ -2969,7 +3089,7 @@ def admin_panel():
 
 @app.route("/admin/category/save", methods=["POST"])
 def admin_save_category():
-    gate = require_panel_login()
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
     if gate:
         return gate
     slug = (request.form.get("slug") or "").strip().lower()
@@ -3016,7 +3136,7 @@ def admin_save_category():
 
 @app.route("/admin/command/save", methods=["POST"])
 def admin_save_command():
-    gate = require_panel_login()
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
     if gate:
         return gate
     slug = (request.form.get("slug") or "").strip().lower()
@@ -3065,7 +3185,7 @@ def admin_save_command():
 
 @app.route("/admin/command/import", methods=["POST"])
 def admin_import_commands():
-    gate = require_panel_login()
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
     if gate:
         return gate
 
@@ -3134,7 +3254,7 @@ def admin_import_commands():
 
 @app.route("/admin/buy/save", methods=["POST"])
 def admin_save_buy_package():
-    gate = require_panel_login()
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
     if gate:
         return gate
     pkg_id = request.form.get("id")
@@ -3178,7 +3298,7 @@ def admin_save_buy_package():
 
 @app.route("/admin/setting/save", methods=["POST"])
 def admin_save_setting():
-    gate = require_panel_login()
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
     if gate:
         return gate
     key = (request.form.get("key") or "").strip()
@@ -3203,7 +3323,7 @@ def admin_save_setting():
 
 @app.route("/admin/request-template/save", methods=["POST"])
 def admin_save_request_template():
-    gate = require_panel_login()
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR", "SOPORTE")
     if gate:
         return gate
     key = (request.form.get("key") or "").strip().lower()
@@ -3229,7 +3349,7 @@ def admin_save_request_template():
 
 @app.route("/admin/user/save", methods=["POST"])
 def admin_save_user():
-    gate = require_panel_login()
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR", "SOPORTE")
     if gate:
         return gate
     id_tg = (request.form.get("id_tg") or "").strip()
@@ -3270,11 +3390,13 @@ def admin_save_user():
 
 @app.route("/admin/user/action", methods=["POST"])
 def admin_user_action():
-    gate = require_panel_login()
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR", "SOPORTE")
     if gate:
         return gate
     id_tg = (request.form.get("id_tg") or "").strip()
     action = (request.form.get("action") or "").strip().lower()
+    if action == "owner" and panel_current_role() != "FUNDADOR":
+        return redirect(url_for("admin_panel", section="usuarios", flash="Solo FUNDADOR puede hacer dueño a un usuario."))
     if not id_tg:
         return redirect(url_for("admin_panel", section="usuarios", flash="Usuario inválido."))
     row = get_user_by_id(id_tg)
@@ -3383,7 +3505,7 @@ def admin_export_purchases_json():
 
 @app.route("/admin/purchase/update", methods=["POST"])
 def admin_update_purchase():
-    gate = require_panel_login()
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR", "SELLER")
     if gate:
         return gate
     purchase_id = (request.form.get("purchase_id") or "").strip()
@@ -3568,6 +3690,64 @@ def admin_update_panel_password():
     return redirect(url_for("admin_panel", section="sistema", flash="Clave del panel actualizada."))
 
 
+@app.route("/admin/panel-account/save", methods=["POST"])
+def admin_save_panel_account():
+    gate = require_panel_owner()
+    if gate:
+        return gate
+    username = (request.form.get("username") or "").strip()
+    password = request.form.get("password") or ""
+    role = (request.form.get("role") or "SOPORTE").strip().upper()
+    is_active = 1 if (request.form.get("is_active") or "1") == "1" else 0
+    if not username:
+        return redirect(url_for("admin_panel", section="sistema", flash="Usuario de panel inválido."))
+    if username == PANEL_USER:
+        return redirect(url_for("admin_panel", section="sistema", flash="La cuenta principal se maneja desde Railway/Sistema."))
+    if role not in PANEL_ROLES:
+        role = "SOPORTE"
+    existing = get_panel_account(username)
+    if not existing and len(password) < 8:
+        return redirect(url_for("admin_panel", section="sistema", flash="La clave inicial debe tener mínimo 8 caracteres."))
+
+    conn = get_conn(DB_PATH)
+    cur = conn.cursor()
+    now = now_iso()
+    if existing:
+        if password:
+            if len(password) < 8:
+                conn.close()
+                return redirect(url_for("admin_panel", section="sistema", flash="La nueva clave debe tener mínimo 8 caracteres."))
+            cur.execute(
+                """
+                UPDATE panel_accounts
+                SET password_hash = ?, role = ?, is_active = ?, updated_at = ?
+                WHERE username = ?
+                """,
+                (generate_password_hash(password), role, is_active, now, username),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE panel_accounts
+                SET role = ?, is_active = ?, updated_at = ?
+                WHERE username = ?
+                """,
+                (role, is_active, now, username),
+            )
+    else:
+        cur.execute(
+            """
+            INSERT INTO panel_accounts (username, password_hash, role, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (username, generate_password_hash(password), role, is_active, now, now),
+        )
+    conn.commit()
+    conn.close()
+    log_audit_event("panel.account.save", username, f"role={role}; active={is_active}")
+    return redirect(url_for("admin_panel", section="sistema", flash=f"Cuenta de panel {username} guardada."))
+
+
 def build_db_backup_response():
     buffer = io.BytesIO()
     temp_path = os.path.join(get_data_dir(), f"spidersyn-manual-{now_utc().strftime('%Y%m%d%H%M%S')}.zip.tmp")
@@ -3618,7 +3798,7 @@ def admin_export_panel():
 
 @app.route("/admin/import", methods=["POST"])
 def admin_import_panel():
-    gate = require_panel_login()
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
     if gate:
         return gate
     uploaded = request.files.get("backup_file")
@@ -3734,7 +3914,7 @@ def admin_import_panel():
 
 @app.route("/admin/bulk/commands", methods=["POST"])
 def admin_bulk_commands():
-    gate = require_panel_login()
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
     if gate:
         return gate
     category_slug = (request.form.get("category_slug") or "").strip().lower()
@@ -3817,6 +3997,14 @@ def panel_login():
             session["panel_role"] = "FUNDADOR"
             PANEL_LOGIN_ATTEMPTS.pop(ip, None)
             log_audit_event("panel.login", username, "success", actor=username)
+            return redirect(next_url)
+        account = get_panel_account(username)
+        if account and int(account.get("is_active") or 0) == 1 and check_password_hash(account["password_hash"], password):
+            session["panel_auth"] = True
+            session["panel_user"] = username
+            session["panel_role"] = (account.get("role") or "SOPORTE").upper()
+            PANEL_LOGIN_ATTEMPTS.pop(ip, None)
+            log_audit_event("panel.login", username, f"success role={session['panel_role']}", actor=username)
             return redirect(next_url)
         attempts.append(now_ts)
         PANEL_LOGIN_ATTEMPTS[ip] = attempts
@@ -3960,6 +4148,7 @@ def init_app_databases():
     init_catalog_db()
     init_buy_db()
     init_panel_settings_db()
+    init_panel_accounts_db()
     init_requests_db()
 
 
