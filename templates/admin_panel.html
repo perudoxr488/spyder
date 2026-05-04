@@ -1058,7 +1058,25 @@
             <div class="metric"><span class="pill">Pendientes</span><h3>{{ dashboard.pendientes }}</h3><div class="small">Solicitudes sin resolver</div></div>
             <div class="metric"><span class="pill">Ventas</span><h3>{{ dashboard.ventas }}</h3><div class="small">Registros en compras</div></div>
           </div>
-          <div class="card" style="margin-top:18px;">
+        </div>
+        <div class="section-grid">
+          <div class="card">
+            <h3>Actividad por periodo</h3>
+            <table>
+              <thead><tr><th>Periodo</th><th>Consultas</th><th>Ventas</th><th>Solicitudes</th></tr></thead>
+              <tbody>
+                {% for period in dashboard.periods.values() %}
+                <tr>
+                  <td><strong>{{ period.label }}</strong></td>
+                  <td>{{ period.consultas }}</td>
+                  <td>{{ period.ventas }}</td>
+                  <td>{{ period.solicitudes }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
             <h3>Top comandos</h3>
             <table>
               <thead><tr><th>Comando</th><th>Total</th></tr></thead>
@@ -1068,6 +1086,99 @@
                 {% endfor %}
                 {% if not dashboard.top_comandos %}
                 <tr><td colspan="2">Sin datos aún.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="section-grid">
+          <div class="card">
+            <h3>Usuarios con más consultas</h3>
+            <table>
+              <thead><tr><th>ID usuario</th><th>Consultas</th></tr></thead>
+              <tbody>
+                {% for item in dashboard.top_usuarios %}
+                <tr><td><a href="{{ url_for('admin_panel', section='usuario', id_tg=item.id_tg) }}">{{ item.id_tg }}</a></td><td>{{ item.total }}</td></tr>
+                {% endfor %}
+                {% if not dashboard.top_usuarios %}
+                <tr><td colspan="2">Sin datos aún.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>Vendedores con más ventas</h3>
+            <table>
+              <thead><tr><th>Vendedor</th><th>Ventas</th></tr></thead>
+              <tbody>
+                {% for item in dashboard.top_vendedores %}
+                <tr><td>{{ item.vendedor }}</td><td>{{ item.total }}</td></tr>
+                {% endfor %}
+                {% if not dashboard.top_vendedores %}
+                <tr><td colspan="2">Sin ventas aún.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="section-grid">
+          <div class="card">
+            <h3>Consultas por día</h3>
+            <table>
+              <thead><tr><th>Día</th><th>Total</th></tr></thead>
+              <tbody>
+                {% for item in dashboard.consultas_por_dia %}
+                <tr><td>{{ item.dia }}</td><td>{{ item.total }}</td></tr>
+                {% endfor %}
+                {% if not dashboard.consultas_por_dia %}
+                <tr><td colspan="2">Sin consultas recientes.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>Ventas por día</h3>
+            <table>
+              <thead><tr><th>Día</th><th>Total</th></tr></thead>
+              <tbody>
+                {% for item in dashboard.ventas_por_dia %}
+                <tr><td>{{ item.dia }}</td><td>{{ item.total }}</td></tr>
+                {% endfor %}
+                {% if not dashboard.ventas_por_dia %}
+                <tr><td colspan="2">Sin ventas recientes.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="section-grid">
+          <div class="card">
+            <h3>Usuarios por plan</h3>
+            <table>
+              <thead><tr><th>Plan</th><th>Total</th></tr></thead>
+              <tbody>
+                {% for item in dashboard.usuarios_por_plan %}
+                <tr><td>{{ item.plan }}</td><td>{{ item.total }}</td></tr>
+                {% endfor %}
+                {% if not dashboard.usuarios_por_plan %}
+                <tr><td colspan="2">Sin usuarios.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>Estados</h3>
+            <table>
+              <thead><tr><th>Tipo</th><th>Total</th></tr></thead>
+              <tbody>
+                {% for item in dashboard.usuarios_por_estado %}
+                <tr><td>Usuario: {{ item.estado }}</td><td>{{ item.total }}</td></tr>
+                {% endfor %}
+                {% for item in dashboard.solicitudes_por_estado %}
+                <tr><td>Solicitud: {{ item.status }}</td><td>{{ item.total }}</td></tr>
+                {% endfor %}
+                {% if not dashboard.usuarios_por_estado and not dashboard.solicitudes_por_estado %}
+                <tr><td colspan="2">Sin estados registrados.</td></tr>
                 {% endif %}
               </tbody>
             </table>

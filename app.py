@@ -830,18 +830,56 @@ def paginate_items(items: list[dict], page: int, per_page: int = 12):
 
 
 def get_dashboard_snapshot():
+    now = now_utc()
+    cutoffs = {
+        "today": now.replace(hour=0, minute=0, second=0, microsecond=0),
+        "last_7": now - timedelta(days=7),
+        "last_30": now - timedelta(days=30),
+    }
+    cutoff_iso = {key: value.isoformat() + "Z" for key, value in cutoffs.items()}
     data = {
         "usuarios": 0,
         "consultas": 0,
         "pendientes": 0,
         "ventas": 0,
+        "periods": {
+            "today": {"label": "Hoy", "consultas": 0, "ventas": 0, "solicitudes": 0},
+            "last_7": {"label": "7 dias", "consultas": 0, "ventas": 0, "solicitudes": 0},
+            "last_30": {"label": "30 dias", "consultas": 0, "ventas": 0, "solicitudes": 0},
+        },
         "top_comandos": [],
+        "top_usuarios": [],
+        "top_vendedores": [],
+        "consultas_por_dia": [],
+        "ventas_por_dia": [],
+        "usuarios_por_plan": [],
+        "usuarios_por_estado": [],
+        "solicitudes_por_estado": [],
     }
     try:
         conn = get_conn(DB_PATH)
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM usuarios")
         data["usuarios"] = cur.fetchone()[0]
+        cur.execute(
+            """
+            SELECT COALESCE(NULLIF(TRIM(plan), ''), 'SIN PLAN') plan, COUNT(*) total
+            FROM usuarios
+            GROUP BY COALESCE(NULLIF(TRIM(plan), ''), 'SIN PLAN')
+            ORDER BY total DESC
+            LIMIT 10
+            """
+        )
+        data["usuarios_por_plan"] = [{"plan": r[0], "total": r[1]} for r in cur.fetchall()]
+        cur.execute(
+            """
+            SELECT COALESCE(NULLIF(TRIM(estado), ''), 'SIN ESTADO') estado, COUNT(*) total
+            FROM usuarios
+            GROUP BY COALESCE(NULLIF(TRIM(estado), ''), 'SIN ESTADO')
+            ORDER BY total DESC
+            """
+        )
+        data["usuarios_por_estado"] = [{"estado": r[0], "total": r[1]} for r in cur.fetchall()]
         conn.close()
     except Exception:
         pass
@@ -850,8 +888,33 @@ def get_dashboard_snapshot():
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM historial")
         data["consultas"] = cur.fetchone()[0]
-        cur.execute("SELECT consulta, COUNT(*) total FROM historial GROUP BY consulta ORDER BY total DESC LIMIT 5")
+        for key, start in cutoff_iso.items():
+            cur.execute("SELECT COUNT(*) FROM historial WHERE fecha >= ?", (start,))
+            data["periods"][key]["consultas"] = cur.fetchone()[0]
+        cur.execute("SELECT consulta, COUNT(*) total FROM historial GROUP BY consulta ORDER BY total DESC LIMIT 10")
         data["top_comandos"] = [{"consulta": r[0], "total": r[1]} for r in cur.fetchall()]
+        cur.execute(
+            """
+            SELECT ID_TG, COUNT(*) total
+            FROM historial
+            GROUP BY ID_TG
+            ORDER BY total DESC
+            LIMIT 10
+            """
+        )
+        data["top_usuarios"] = [{"id_tg": r[0], "total": r[1]} for r in cur.fetchall()]
+        cur.execute(
+            """
+            SELECT substr(fecha, 1, 10) dia, COUNT(*) total
+            FROM historial
+            WHERE fecha >= ?
+            GROUP BY substr(fecha, 1, 10)
+            ORDER BY dia DESC
+            LIMIT 14
+            """,
+            (cutoff_iso["last_30"],),
+        )
+        data["consultas_por_dia"] = [{"dia": r[0], "total": r[1]} for r in cur.fetchall()]
         conn.close()
     except Exception:
         pass
@@ -860,6 +923,18 @@ def get_dashboard_snapshot():
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM requests WHERE status = 'pending'")
         data["pendientes"] = cur.fetchone()[0]
+        for key, start in cutoff_iso.items():
+            cur.execute("SELECT COUNT(*) FROM requests WHERE created_at >= ?", (start,))
+            data["periods"][key]["solicitudes"] = cur.fetchone()[0]
+        cur.execute(
+            """
+            SELECT COALESCE(NULLIF(TRIM(status), ''), 'sin estado') status, COUNT(*) total
+            FROM requests
+            GROUP BY COALESCE(NULLIF(TRIM(status), ''), 'sin estado')
+            ORDER BY total DESC
+            """
+        )
+        data["solicitudes_por_estado"] = [{"status": r[0], "total": r[1]} for r in cur.fetchall()]
         conn.close()
     except Exception:
         pass
@@ -868,6 +943,31 @@ def get_dashboard_snapshot():
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM compras")
         data["ventas"] = cur.fetchone()[0]
+        for key, start in cutoff_iso.items():
+            cur.execute("SELECT COUNT(*) FROM compras WHERE FECHA >= ?", (start,))
+            data["periods"][key]["ventas"] = cur.fetchone()[0]
+        cur.execute(
+            """
+            SELECT COALESCE(NULLIF(TRIM(VENDEDOR), ''), 'SIN VENDEDOR') vendedor, COUNT(*) total
+            FROM compras
+            GROUP BY COALESCE(NULLIF(TRIM(VENDEDOR), ''), 'SIN VENDEDOR')
+            ORDER BY total DESC
+            LIMIT 10
+            """
+        )
+        data["top_vendedores"] = [{"vendedor": r[0], "total": r[1]} for r in cur.fetchall()]
+        cur.execute(
+            """
+            SELECT substr(FECHA, 1, 10) dia, COUNT(*) total
+            FROM compras
+            WHERE FECHA >= ?
+            GROUP BY substr(FECHA, 1, 10)
+            ORDER BY dia DESC
+            LIMIT 14
+            """,
+            (cutoff_iso["last_30"],),
+        )
+        data["ventas_por_dia"] = [{"dia": r[0], "total": r[1]} for r in cur.fetchall()]
         conn.close()
     except Exception:
         pass
