@@ -35,6 +35,9 @@
     .actions form { display:inline-block; }
     .small { font-size:12px; color:var(--muted); }
     .toolbar { display:flex; justify-content:space-between; gap:12px; align-items:center; }
+    .search-form { display:flex; gap:8px; min-width:360px; }
+    .search-form input { min-width:220px; }
+    .search-form button { width:auto; white-space:nowrap; }
     .hero a { color:var(--accent); font-weight:700; text-decoration:none; }
     .sidebar { position:sticky; top:16px; display:grid; gap:10px; }
     .side-link { display:block; padding:12px 14px; border-radius:14px; background:var(--card); border:1px solid var(--line); color:var(--ink); text-decoration:none; font-weight:700; }
@@ -74,7 +77,7 @@
     body.dark button.secondary { color:#2d1c08; }
     body.dark input::placeholder, body.dark textarea::placeholder { color:#7f938a; }
     body.dark .telegram-bubble { border:1px solid rgba(255,255,255,.06); }
-    @media (max-width: 1100px) { .layout, .grid, .section-grid, .summary, .three, .preview-grid { grid-template-columns:1fr; } .sidebar { position:static; } }
+    @media (max-width: 1100px) { .layout, .grid, .section-grid, .summary, .three, .preview-grid { grid-template-columns:1fr; } .sidebar { position:static; } .toolbar { align-items:stretch; flex-direction:column; } .toolbar-right, .search-form { width:100%; } .search-form { min-width:0; } .search-form input { min-width:0; } }
   </style>
 </head>
 <body>
@@ -86,6 +89,11 @@
           <p class="muted">Aquí puedes gestionar catálogo, info visible, precios, estados y paquetes de compra sin tocar Python.</p>
         </div>
         <div class="toolbar-right">
+          <form method="get" action="{{ url_for('admin_panel') }}" class="search-form">
+            <input type="hidden" name="section" value="buscar">
+            <input name="gq" value="{{ global_q }}" placeholder="Buscar ID, username, comando o vendedor">
+            <button type="submit">Buscar</button>
+          </form>
           <button class="theme-toggle" type="button" onclick="toggleTheme()">Tema</button>
           <a href="{{ url_for('panel_logout') }}">Cerrar sesión</a>
         </div>
@@ -94,6 +102,7 @@
       <p class="small">Ruta local sugerida: <code>http://127.0.0.1:8080/admin/panel</code></p>
       <div class="subnav">
         <a href="{{ url_for('admin_panel', section='resumen') }}">Resumen</a>
+        <a href="{{ url_for('admin_panel', section='buscar') }}">Buscar</a>
         <a href="{{ url_for('admin_panel', section='categorias') }}">Categorías</a>
         <a href="{{ url_for('admin_panel', section='comandos') }}">Comandos</a>
         <a href="{{ url_for('admin_panel', section='buy') }}">/buy</a>
@@ -107,6 +116,7 @@
     <div class="layout">
       <div class="sidebar">
         <a class="side-link {% if active_section == 'resumen' %}active{% endif %}" href="{{ url_for('admin_panel', section='resumen') }}">Resumen</a>
+        <a class="side-link {% if active_section == 'buscar' %}active{% endif %}" href="{{ url_for('admin_panel', section='buscar') }}">Buscar</a>
         <a class="side-link {% if active_section == 'categorias' %}active{% endif %}" href="{{ url_for('admin_panel', section='categorias') }}">Categorías</a>
         <a class="side-link {% if active_section == 'comandos' %}active{% endif %}" href="{{ url_for('admin_panel', section='comandos') }}">Comandos</a>
         <a class="side-link {% if active_section == 'buy' %}active{% endif %}" href="{{ url_for('admin_panel', section='buy') }}">Paquetes /buy</a>
@@ -144,6 +154,109 @@
             <div class="telegram-preview"><div class="telegram-bubble">{{ previews.cmds }}</div></div>
           </div>
         </div>
+      </div>
+      {% endif %}
+      {% if active_section == 'buscar' %}
+      <div class="stack">
+        <div class="card">
+          <h2>Buscador global</h2>
+          <p class="small">Busca en usuarios, compras, historial y solicitudes desde un solo lugar.</p>
+          <form method="get" action="{{ url_for('admin_panel') }}" class="inline" style="margin-top:14px;">
+            <input type="hidden" name="section" value="buscar">
+            <input name="gq" value="{{ global_q }}" placeholder="ID, username, comando, vendedor, plan o texto">
+            <button type="submit">Buscar</button>
+          </form>
+          <div class="summary" style="margin-top:14px;">
+            <div class="metric"><span class="pill">Usuarios</span><h3>{{ global_results.users|length }}</h3><div class="small">Coincidencias</div></div>
+            <div class="metric"><span class="pill">Compras</span><h3>{{ global_results.purchases|length }}</h3><div class="small">Coincidencias</div></div>
+            <div class="metric"><span class="pill">Historial</span><h3>{{ global_results.history|length }}</h3><div class="small">Coincidencias</div></div>
+            <div class="metric"><span class="pill">Solicitudes</span><h3>{{ global_results.requests|length }}</h3><div class="small">Coincidencias</div></div>
+          </div>
+        </div>
+        {% if not global_q %}
+        <div class="card"><p>Escribe algo arriba para buscar en todo el panel.</p></div>
+        {% else %}
+        <div class="section-grid">
+          <div class="card">
+            <h3>Usuarios</h3>
+            <table>
+              <thead><tr><th>ID</th><th>Perfil</th><th>Estado</th><th>Acciones</th></tr></thead>
+              <tbody>
+                {% for user in global_results.users %}
+                <tr>
+                  <td><strong>{{ user.id_tg }}</strong></td>
+                  <td>{{ user.rol_tg or 'FREE' }}<div class="small">{{ user.user_web or user.number_wsp or '—' }}</div></td>
+                  <td>{{ user.plan or 'FREE' }} · {{ user.estado or '—' }}<div class="small">{{ user.creditos or 0 }} cr</div></td>
+                  <td><a href="{{ url_for('admin_panel', section='usuario', uid=user.id_tg) }}">Perfil</a></td>
+                </tr>
+                {% endfor %}
+                {% if not global_results.users %}
+                <tr><td colspan="4">Sin usuarios.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>Compras</h3>
+            <table>
+              <thead><tr><th>ID</th><th>Usuario</th><th>Compra</th><th>Fecha</th></tr></thead>
+              <tbody>
+                {% for row in global_results.purchases %}
+                <tr>
+                  <td>#{{ row.ID }}</td>
+                  <td><a href="{{ url_for('admin_panel', section='usuario', uid=row.ID_TG) }}">{{ row.ID_TG }}</a><div class="small">Vendedor: {{ row.VENDEDOR or '—' }}</div></td>
+                  <td>{{ row.COMPRO or '—' }}</td>
+                  <td>{{ row.FECHA or '—' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not global_results.purchases %}
+                <tr><td colspan="4">Sin compras.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="section-grid">
+          <div class="card">
+            <h3>Historial</h3>
+            <table>
+              <thead><tr><th>ID</th><th>Usuario</th><th>Consulta</th><th>Fecha</th></tr></thead>
+              <tbody>
+                {% for row in global_results.history %}
+                <tr>
+                  <td>#{{ row.ID }}</td>
+                  <td><a href="{{ url_for('admin_panel', section='usuario', uid=row.ID_TG) }}">{{ row.ID_TG }}</a></td>
+                  <td><strong>/{{ row.consulta }}</strong><div class="small">{{ row.valor or '—' }} · {{ row.plataforma or '—' }}</div></td>
+                  <td>{{ row.fecha or '—' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not global_results.history %}
+                <tr><td colspan="4">Sin historial.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>Solicitudes</h3>
+            <table>
+              <thead><tr><th>ID</th><th>Usuario</th><th>Solicitud</th><th>Estado</th></tr></thead>
+              <tbody>
+                {% for req in global_results.requests %}
+                <tr>
+                  <td>#{{ req.id }}</td>
+                  <td><a href="{{ url_for('admin_panel', section='usuario', uid=req.user_id) }}">{{ req.user_id }}</a><div class="small">{{ req.username or '—' }}</div></td>
+                  <td>/{{ req.command }}<div class="small">{{ req.payload or req.resolution_note or '—' }}</div></td>
+                  <td>{{ req.status or '—' }}<div class="small">{{ req.created_at or '—' }}</div></td>
+                </tr>
+                {% endfor %}
+                {% if not global_results.requests %}
+                <tr><td colspan="4">Sin solicitudes.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
       </div>
       {% endif %}
       {% if active_section == 'usuarios' %}

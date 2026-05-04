@@ -1297,6 +1297,104 @@ def get_user_profile_snapshot(user_id: str):
     }
 
 
+def get_global_search_results(q: str, limit: int = 25):
+    q = (q or "").strip()
+    results = {"q": q, "users": [], "purchases": [], "history": [], "requests": []}
+    if not q:
+        return results
+    like = f"%{q.lower()}%"
+    try:
+        conn = get_conn(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id_tg, rol_tg, creditos, plan, estado, fecha_caducidad, antispam,
+                   register_web, register_wsp, user_web, number_wsp
+            FROM usuarios
+            WHERE LOWER(id_tg) LIKE ?
+               OR LOWER(COALESCE(rol_tg, '')) LIKE ?
+               OR LOWER(COALESCE(plan, '')) LIKE ?
+               OR LOWER(COALESCE(estado, '')) LIKE ?
+               OR LOWER(COALESCE(user_web, '')) LIKE ?
+               OR LOWER(COALESCE(number_wsp, '')) LIKE ?
+            ORDER BY id_tg DESC
+            LIMIT ?
+            """,
+            (like, like, like, like, like, like, limit),
+        )
+        results["users"] = [dict(row) for row in cur.fetchall()]
+        conn.close()
+    except Exception:
+        pass
+    try:
+        conn = get_conn(COMPRAS_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT ID, ID_TG, VENDEDOR, FECHA, COMPRO
+            FROM compras
+            WHERE LOWER(COALESCE(ID_TG, '')) LIKE ?
+               OR LOWER(COALESCE(VENDEDOR, '')) LIKE ?
+               OR LOWER(COALESCE(COMPRO, '')) LIKE ?
+            ORDER BY FECHA DESC, ID DESC
+            LIMIT ?
+            """,
+            (like, like, like, limit),
+        )
+        results["purchases"] = [dict(row) for row in cur.fetchall()]
+        conn.close()
+    except Exception:
+        pass
+    try:
+        conn = get_conn(HIST_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT ID, ID_TG, consulta, valor, fecha, plataforma
+            FROM historial
+            WHERE LOWER(COALESCE(ID_TG, '')) LIKE ?
+               OR LOWER(COALESCE(consulta, '')) LIKE ?
+               OR LOWER(COALESCE(valor, '')) LIKE ?
+               OR LOWER(COALESCE(plataforma, '')) LIKE ?
+            ORDER BY fecha DESC, ID DESC
+            LIMIT ?
+            """,
+            (like, like, like, like, limit),
+        )
+        results["history"] = [dict(row) for row in cur.fetchall()]
+        conn.close()
+    except Exception:
+        pass
+    try:
+        conn = get_conn(REQUESTS_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, user_id, username, command, payload, status, cost,
+                   created_at, resolved_at, resolved_by, resolution_note
+            FROM requests
+            WHERE LOWER(CAST(user_id AS TEXT)) LIKE ?
+               OR LOWER(COALESCE(username, '')) LIKE ?
+               OR LOWER(COALESCE(command, '')) LIKE ?
+               OR LOWER(COALESCE(payload, '')) LIKE ?
+               OR LOWER(COALESCE(status, '')) LIKE ?
+               OR LOWER(COALESCE(resolution_note, '')) LIKE ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (like, like, like, like, like, like, limit),
+        )
+        results["requests"] = [dict(row) for row in cur.fetchall()]
+        conn.close()
+    except Exception:
+        pass
+    return results
+
+
 def get_storage_snapshot():
     dbs = [
         ("usuarios", DB_PATH),
@@ -2537,12 +2635,14 @@ def admin_panel():
         return gate
     flash = request.args.get("flash", "")
     active_section = (request.args.get("section") or "resumen").strip().lower()
-    if active_section not in {"resumen", "categorias", "comandos", "buy", "usuarios", "usuario", "compras", "historial", "vendedores", "ajustes", "solicitudes", "herramientas", "sistema", "estadisticas"}:
+    if active_section not in {"resumen", "buscar", "categorias", "comandos", "buy", "usuarios", "usuario", "compras", "historial", "vendedores", "ajustes", "solicitudes", "herramientas", "sistema", "estadisticas"}:
         active_section = "resumen"
     categories = get_catalog_categories()
     commands = get_catalog_commands()
     settings = get_panel_settings()
     buy_packages = get_buy_packages()
+    global_q = request.args.get("gq", "")
+    global_results = get_global_search_results(global_q)
     user_q = request.args.get("uq", "")
     user_status = (request.args.get("ustatus") or "").upper()
     user_plan = (request.args.get("uplan") or "").upper()
@@ -2627,6 +2727,8 @@ def admin_panel():
         settings=settings,
         previews=build_panel_previews(settings, buy_packages, commands),
         dashboard=get_dashboard_snapshot(),
+        global_q=global_q,
+        global_results=global_results,
         storage=get_storage_snapshot(),
         error_logs=get_error_logs(limit=50),
         audit_logs=get_audit_logs(limit=80),
