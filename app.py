@@ -13,6 +13,7 @@ import csv
 import io
 import zipfile
 import traceback
+import shutil
 from flask_cors import CORS, cross_origin
 from werkzeug.security import check_password_hash, generate_password_hash
 from storage import db_path, get_data_dir
@@ -1439,6 +1440,24 @@ def get_storage_snapshot():
     }
 
 
+def get_history_cleanup_preview():
+    preview = []
+    now = now_utc()
+    for days in (30, 60, 90, 180):
+        cutoff = (now - timedelta(days=days)).replace(microsecond=0).isoformat() + "Z"
+        total = 0
+        try:
+            conn = get_conn(HIST_DB_PATH)
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM historial WHERE fecha < ?", (cutoff,))
+            total = int(cur.fetchone()[0] or 0)
+            conn.close()
+        except Exception:
+            total = 0
+        preview.append({"days": days, "cutoff": cutoff, "total": total})
+    return preview
+
+
 def get_error_logs(limit: int = 50):
     try:
         conn = get_conn(REQUESTS_DB_PATH)
@@ -2768,6 +2787,7 @@ def admin_panel():
         global_q=global_q,
         global_results=global_results,
         storage=get_storage_snapshot(),
+        history_cleanup_preview=get_history_cleanup_preview(),
         error_logs=get_error_logs(limit=50),
         audit_logs=get_audit_logs(limit=80),
         purchases=purchases,
@@ -3267,6 +3287,46 @@ def admin_db_backup_zip():
     if gate:
         return gate
     return build_db_backup_response()
+
+
+@app.route("/admin/maintenance/cleanup-history", methods=["POST"])
+def admin_cleanup_history():
+    gate = require_panel_login()
+    if gate:
+        return gate
+    try:
+        days = int(request.form.get("days") or 90)
+    except Exception:
+        days = 90
+    if days < 30:
+        return redirect(url_for("admin_panel", section="sistema", flash="Usa mínimo 30 días para limpiar historial."))
+    if (request.form.get("confirm") or "").strip().upper() != "LIMPIAR":
+        return redirect(url_for("admin_panel", section="sistema", flash="Escribe LIMPIAR para confirmar."))
+
+    cutoff = (now_utc() - timedelta(days=days)).replace(microsecond=0).isoformat() + "Z"
+    backup_name = f"historial-before-cleanup-{now_utc().strftime('%Y%m%d%H%M%S')}.db.bak"
+    backup_path = os.path.join(get_data_dir(), backup_name)
+    try:
+        if os.path.exists(HIST_DB_PATH):
+            shutil.copy2(HIST_DB_PATH, backup_path)
+        conn = get_conn(HIST_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM historial WHERE fecha < ?", (cutoff,))
+        deleted = int(cur.rowcount or 0)
+        conn.commit()
+        cur.execute("VACUUM")
+        conn.close()
+    except Exception as exc:
+        return redirect(url_for("admin_panel", section="sistema", flash=f"No se pudo limpiar historial: {exc}"))
+
+    log_audit_event("history.cleanup", f"{days}d", f"deleted={deleted}; cutoff={cutoff}; backup={backup_path}")
+    return redirect(
+        url_for(
+            "admin_panel",
+            section="sistema",
+            flash=f"Historial limpiado: {deleted} registros. Backup previo: {backup_name}",
+        )
+    )
 
 
 def build_db_backup_response():

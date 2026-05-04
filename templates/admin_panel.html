@@ -1147,6 +1147,30 @@
             </div>
           </div>
           <div class="card">
+            <h2>Limpieza de historial</h2>
+            <p class="small">Antes de borrar se crea una copia de historial.db en el directorio de datos.</p>
+            <table>
+              <thead><tr><th>Más antiguo que</th><th>Fecha corte</th><th>Registros</th></tr></thead>
+              <tbody>
+                {% for item in history_cleanup_preview %}
+                <tr><td>{{ item.days }} días</td><td>{{ item.cutoff }}</td><td>{{ item.total }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            <form method="post" action="{{ url_for('admin_cleanup_history') }}" style="margin-top:14px;">
+              <label>Eliminar historial más antiguo que</label>
+              <select name="days">
+                <option value="90">90 días</option>
+                <option value="180">180 días</option>
+                <option value="60">60 días</option>
+                <option value="30">30 días</option>
+              </select>
+              <label>Confirmación</label>
+              <input name="confirm" placeholder="Escribe LIMPIAR">
+              <button class="danger" type="submit">Limpiar historial antiguo</button>
+            </form>
+          </div>
+          <div class="card">
             <h2>Errores recientes</h2>
             <table>
               <thead><tr><th>ID</th><th>Ruta</th><th>Error</th><th>Fecha</th></tr></thead>
