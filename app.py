@@ -9,9 +9,12 @@ import secrets
 import time
 import os
 import json
+import csv
+import io
+import zipfile
 from flask_cors import CORS, cross_origin
 from werkzeug.security import check_password_hash, generate_password_hash
-from storage import db_path
+from storage import db_path, get_data_dir
 
 DB_PATH = db_path("multiplataforma.db")
 HIST_DB_PATH = db_path("historial.db")
@@ -953,10 +956,10 @@ def get_vendor_sales_detail(vendedor_id: str, limit: int = 100):
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT ID_TG, VENDEDOR, FECHA, COMPRO
+            SELECT ID, ID_TG, VENDEDOR, FECHA, COMPRO
             FROM compras
             WHERE VENDEDOR = ?
-            ORDER BY FECHA DESC
+            ORDER BY FECHA DESC, ID DESC
             LIMIT ?
             """,
             (vendedor_id, limit),
@@ -966,6 +969,149 @@ def get_vendor_sales_detail(vendedor_id: str, limit: int = 100):
         return rows
     except Exception:
         return []
+
+
+def _date_bounds(date_from: str = "", date_to: str = ""):
+    start = (date_from or "").strip()
+    end = (date_to or "").strip()
+    start_iso = f"{start}T00:00:00" if start else ""
+    end_iso = f"{end}T23:59:59" if end else ""
+    return start_iso, end_iso
+
+
+def get_admin_purchases(user_id: str = "", vendor_id: str = "", date_from: str = "", date_to: str = "", kind: str = "", limit: int = 300):
+    clauses = []
+    params = []
+    user_id = (user_id or "").strip()
+    vendor_id = (vendor_id or "").strip()
+    kind = (kind or "").strip().lower()
+    start_iso, end_iso = _date_bounds(date_from, date_to)
+    if user_id:
+        clauses.append("ID_TG LIKE ?")
+        params.append(f"%{user_id}%")
+    if vendor_id:
+        clauses.append("VENDEDOR LIKE ?")
+        params.append(f"%{vendor_id}%")
+    if start_iso:
+        clauses.append("FECHA >= ?")
+        params.append(start_iso)
+    if end_iso:
+        clauses.append("FECHA <= ?")
+        params.append(end_iso)
+    if kind == "credits":
+        clauses.append("UPPER(COMPRO) LIKE '%CREDIT%'")
+    elif kind == "days":
+        clauses.append("(UPPER(COMPRO) LIKE '%DIA%' OR UPPER(COMPRO) LIKE '%DAY%')")
+    where = "WHERE " + " AND ".join(clauses) if clauses else ""
+    try:
+        conn = get_conn(COMPRAS_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT ID, ID_TG, VENDEDOR, FECHA, COMPRO
+            FROM compras
+            {where}
+            ORDER BY FECHA DESC, ID DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        )
+        rows = [dict(row) for row in cur.fetchall()]
+        conn.close()
+    except Exception:
+        rows = []
+    return rows
+
+
+def get_admin_history(user_id: str = "", command: str = "", platform: str = "", date_from: str = "", date_to: str = "", q: str = "", limit: int = 300):
+    clauses = []
+    params = []
+    user_id = (user_id or "").strip()
+    command = (command or "").strip().lower()
+    platform = (platform or "").strip().upper()
+    q = (q or "").strip().lower()
+    start_iso, end_iso = _date_bounds(date_from, date_to)
+    if user_id:
+        clauses.append("ID_TG LIKE ?")
+        params.append(f"%{user_id}%")
+    if command:
+        clauses.append("LOWER(consulta) = ?")
+        params.append(command)
+    if platform:
+        clauses.append("plataforma = ?")
+        params.append(platform)
+    if start_iso:
+        clauses.append("fecha >= ?")
+        params.append(start_iso)
+    if end_iso:
+        clauses.append("fecha <= ?")
+        params.append(end_iso)
+    if q:
+        clauses.append("(LOWER(valor) LIKE ? OR LOWER(consulta) LIKE ? OR LOWER(ID_TG) LIKE ?)")
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+    where = "WHERE " + " AND ".join(clauses) if clauses else ""
+    try:
+        conn = get_conn(HIST_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT ID, ID_TG, consulta, valor, fecha, plataforma
+            FROM historial
+            {where}
+            ORDER BY fecha DESC, ID DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        )
+        rows = [dict(row) for row in cur.fetchall()]
+        conn.close()
+    except Exception:
+        rows = []
+    return rows
+
+
+def get_storage_snapshot():
+    dbs = [
+        ("usuarios", DB_PATH),
+        ("historial", HIST_DB_PATH),
+        ("compras", COMPRAS_DB_PATH),
+        ("keys", KEYS_DB_PATH),
+        ("requests", REQUESTS_DB_PATH),
+    ]
+    data_dir = get_data_dir()
+    items = []
+    for name, path in dbs:
+        exists = os.path.exists(path)
+        items.append(
+            {
+                "name": name,
+                "path": path,
+                "exists": exists,
+                "size": os.path.getsize(path) if exists else 0,
+                "in_data_dir": os.path.abspath(path).startswith(os.path.abspath(data_dir)),
+            }
+        )
+    return {
+        "data_dir": data_dir,
+        "env_data_dir": os.environ.get("SPIDERSYN_DATA_DIR") or "",
+        "railway_mount": os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or "",
+        "items": items,
+    }
+
+
+def _csv_response(filename: str, rows: list[dict], fieldnames: list[str]):
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    body = out.getvalue()
+    return Response(
+        body,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 def _is_panel_logged_in() -> bool:
@@ -2034,6 +2180,28 @@ def index():
     return {"status": "ok", "message": "SpiderSyn API online"}
 
 
+@app.route("/health", methods=["GET"])
+def health():
+    storage = get_storage_snapshot()
+    ok = all(item["exists"] for item in storage["items"])
+    return jsonify(
+        {
+            "status": "ok" if ok else "warn",
+            "message": "SpiderSyn healthcheck",
+            "storage": storage,
+            "time": now_iso(),
+        }
+    ), 200
+
+
+@app.route("/debug/storage", methods=["GET"])
+def debug_storage():
+    gate = require_panel_login()
+    if gate:
+        return gate
+    return jsonify({"status": "ok", "data": get_storage_snapshot()}), 200
+
+
 @app.route("/command_config", methods=["GET"])
 def command_config():
     auth_error = require_internal_access()
@@ -2077,7 +2245,7 @@ def admin_panel():
         return gate
     flash = request.args.get("flash", "")
     active_section = (request.args.get("section") or "resumen").strip().lower()
-    if active_section not in {"resumen", "categorias", "comandos", "buy", "usuarios", "vendedores", "ajustes", "solicitudes", "herramientas", "estadisticas"}:
+    if active_section not in {"resumen", "categorias", "comandos", "buy", "usuarios", "compras", "historial", "vendedores", "ajustes", "solicitudes", "herramientas", "sistema", "estadisticas"}:
         active_section = "resumen"
     categories = get_catalog_categories()
     commands = get_catalog_commands()
@@ -2087,6 +2255,35 @@ def admin_panel():
     user_status = (request.args.get("ustatus") or "").upper()
     user_plan = (request.args.get("uplan") or "").upper()
     admin_users = get_admin_users(q=user_q, status=user_status, plan=user_plan, limit=250)
+    purchase_user = request.args.get("purchase_user", "")
+    purchase_vendor = request.args.get("purchase_vendor", "")
+    purchase_from = request.args.get("purchase_from", "")
+    purchase_to = request.args.get("purchase_to", "")
+    purchase_kind = request.args.get("purchase_kind", "")
+    purchases = get_admin_purchases(
+        user_id=purchase_user,
+        vendor_id=purchase_vendor,
+        date_from=purchase_from,
+        date_to=purchase_to,
+        kind=purchase_kind,
+        limit=300,
+    )
+    history_user = request.args.get("history_user", "")
+    history_command = request.args.get("history_command", "")
+    history_platform = request.args.get("history_platform", "")
+    history_from = request.args.get("history_from", "")
+    history_to = request.args.get("history_to", "")
+    history_q = request.args.get("history_q", "")
+    history_rows = get_admin_history(
+        user_id=history_user,
+        command=history_command,
+        platform=history_platform,
+        date_from=history_from,
+        date_to=history_to,
+        q=history_q,
+        limit=300,
+    )
+    history_commands = sorted({(row.get("consulta") or "").strip().lower() for row in get_admin_history(limit=1000) if row.get("consulta")})
     vendor_q = request.args.get("vq", "")
     selected_vendor = (request.args.get("vendor") or "").strip()
     vendor_summary = get_vendor_sales_summary(q=vendor_q, limit=250)
@@ -2134,6 +2331,21 @@ def admin_panel():
         settings=settings,
         previews=build_panel_previews(settings, buy_packages, commands),
         dashboard=get_dashboard_snapshot(),
+        storage=get_storage_snapshot(),
+        purchases=purchases,
+        purchase_user=purchase_user,
+        purchase_vendor=purchase_vendor,
+        purchase_from=purchase_from,
+        purchase_to=purchase_to,
+        purchase_kind=purchase_kind,
+        history_rows=history_rows,
+        history_user=history_user,
+        history_command=history_command,
+        history_platform=history_platform,
+        history_from=history_from,
+        history_to=history_to,
+        history_q=history_q,
+        history_commands=history_commands,
         pending_requests=pending_requests,
         recent_requests=recent_requests,
         filtered_pending_requests=filtered_pending_requests,
@@ -2450,6 +2662,124 @@ def admin_save_user():
     conn.commit()
     conn.close()
     return redirect(url_for("admin_panel", section="usuarios", flash=f"Usuario {id_tg} actualizado."))
+
+
+@app.route("/admin/user/action", methods=["POST"])
+def admin_user_action():
+    gate = require_panel_login()
+    if gate:
+        return gate
+    id_tg = (request.form.get("id_tg") or "").strip()
+    action = (request.form.get("action") or "").strip().lower()
+    if not id_tg:
+        return redirect(url_for("admin_panel", section="usuarios", flash="Usuario inválido."))
+    row = get_user_by_id(id_tg)
+    if not row:
+        return redirect(url_for("admin_panel", section="usuarios", flash=f"Usuario {id_tg} no existe."))
+    conn = get_conn(DB_PATH)
+    cur = conn.cursor()
+    flash = f"Acción aplicada a {id_tg}."
+    if action == "owner":
+        cur.execute(
+            """
+            UPDATE usuarios
+            SET rol_tg='FUNDADOR', rol_web='FUNDADOR', rol_wsp='FUNDADOR',
+                plan='PREMIUM', estado='ACTIVO', antispam=0,
+                creditos=CASE WHEN COALESCE(creditos, 0) < 999999 THEN 999999 ELSE creditos END,
+                fecha_caducidad='2099-12-31T23:59:59Z'
+            WHERE id_tg=?
+            """,
+            (id_tg,),
+        )
+        flash = f"Usuario {id_tg} ahora es FUNDADOR."
+    elif action == "ban":
+        cur.execute("UPDATE usuarios SET estado='BANEADO' WHERE id_tg=?", (id_tg,))
+        flash = f"Usuario {id_tg} baneado."
+    elif action == "unban":
+        cur.execute("UPDATE usuarios SET estado='ACTIVO' WHERE id_tg=?", (id_tg,))
+        flash = f"Usuario {id_tg} activo."
+    elif action.startswith("credits_"):
+        try:
+            amount = int(action.split("_", 1)[1])
+        except Exception:
+            amount = 0
+        cur.execute("UPDATE usuarios SET creditos=COALESCE(creditos, 0) + ? WHERE id_tg=?", (amount, id_tg))
+        flash = f"Se agregaron {amount} créditos a {id_tg}."
+    elif action.startswith("plan_"):
+        try:
+            days = int(action.split("_", 1)[1])
+        except Exception:
+            days = 0
+        now = now_utc()
+        current = row["fecha_caducidad"]
+        try:
+            base = parse_iso(current) if current else now
+        except Exception:
+            base = now
+        if base < now:
+            base = now
+        new_iso = (base + timedelta(days=days)).replace(microsecond=0).isoformat() + "Z"
+        cur.execute(
+            "UPDATE usuarios SET plan='PREMIUM', estado='ACTIVO', fecha_caducidad=?, antispam=5 WHERE id_tg=?",
+            (new_iso, id_tg),
+        )
+        flash = f"Se agregaron {days} días premium a {id_tg}."
+    else:
+        flash = "Acción no reconocida."
+    conn.commit()
+    conn.close()
+    return redirect(url_for("admin_panel", section="usuarios", uq=id_tg, flash=flash))
+
+
+@app.route("/admin/export/compras.csv", methods=["GET"])
+def admin_export_purchases_csv():
+    gate = require_panel_login()
+    if gate:
+        return gate
+    rows = get_admin_purchases(
+        user_id=request.args.get("purchase_user", ""),
+        vendor_id=request.args.get("purchase_vendor", ""),
+        date_from=request.args.get("purchase_from", ""),
+        date_to=request.args.get("purchase_to", ""),
+        kind=request.args.get("purchase_kind", ""),
+        limit=10000,
+    )
+    return _csv_response("spidersyn-compras.csv", rows, ["ID", "ID_TG", "VENDEDOR", "FECHA", "COMPRO"])
+
+
+@app.route("/admin/export/historial.csv", methods=["GET"])
+def admin_export_history_csv():
+    gate = require_panel_login()
+    if gate:
+        return gate
+    rows = get_admin_history(
+        user_id=request.args.get("history_user", ""),
+        command=request.args.get("history_command", ""),
+        platform=request.args.get("history_platform", ""),
+        date_from=request.args.get("history_from", ""),
+        date_to=request.args.get("history_to", ""),
+        q=request.args.get("history_q", ""),
+        limit=10000,
+    )
+    return _csv_response("spidersyn-historial.csv", rows, ["ID", "ID_TG", "consulta", "valor", "fecha", "plataforma"])
+
+
+@app.route("/admin/db-backup.zip", methods=["GET"])
+def admin_db_backup_zip():
+    gate = require_panel_login()
+    if gate:
+        return gate
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for item in get_storage_snapshot()["items"]:
+            if item["exists"]:
+                zf.write(item["path"], arcname=os.path.basename(item["path"]))
+    buffer.seek(0)
+    return Response(
+        buffer.getvalue(),
+        mimetype="application/zip",
+        headers={"Content-Disposition": "attachment; filename=spidersyn-db-backup.zip"},
+    )
 
 
 @app.route("/admin/export", methods=["GET"])
