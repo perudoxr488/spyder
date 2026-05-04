@@ -947,6 +947,26 @@
               </tbody>
             </table>
           </div>
+          <div class="card">
+            <h2>Auditoría del panel</h2>
+            <table>
+              <thead><tr><th>ID</th><th>Acción</th><th>Objetivo</th><th>Detalle</th><th>Fecha</th></tr></thead>
+              <tbody>
+                {% for row in audit_logs %}
+                <tr>
+                  <td>#{{ row.id }}</td>
+                  <td><strong>{{ row.action }}</strong><div class="small">{{ row.actor }} · {{ row.ip }}</div></td>
+                  <td>{{ row.target or '—' }}</td>
+                  <td>{{ row.details or '—' }}</td>
+                  <td>{{ row.created_at or '—' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not audit_logs %}
+                <tr><td colspan="5">Sin cambios auditados todavía.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
         </div>
         {% endif %}
         {% if active_section == 'estadisticas' %}

@@ -56,6 +56,7 @@ PANEL_PASSWORD = (
     or CFG.get("PANEL_PASSWORD")
     or str(CFG.get("ADMIN_ID") or "admin123")
 )
+PANEL_LOGIN_ATTEMPTS = {}
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = PANEL_PUBLIC
@@ -517,8 +518,45 @@ def init_requests_db():
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor TEXT,
+            ip TEXT,
+            action TEXT,
+            target TEXT,
+            details TEXT,
+            created_at TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
+
+
+def log_audit_event(action: str, target: str = "", details: str = "", actor: str = ""):
+    try:
+        conn = get_conn(REQUESTS_DB_PATH)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO audit_logs (actor, ip, action, target, details, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                actor or session.get("panel_user") or PANEL_USER,
+                request.remote_addr or "",
+                action,
+                target,
+                str(details or "")[:2000],
+                now_iso(),
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 def log_error_event(exc: Exception):
@@ -1170,6 +1208,40 @@ def get_error_logs(limit: int = 50):
             """
             SELECT id, path, method, message, traceback, created_at
             FROM error_logs
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
+def get_audit_logs(limit: int = 80):
+    try:
+        conn = get_conn(REQUESTS_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor TEXT,
+                ip TEXT,
+                action TEXT,
+                target TEXT,
+                details TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            SELECT id, actor, ip, action, target, details, created_at
+            FROM audit_logs
             ORDER BY id DESC
             LIMIT ?
             """,
@@ -2414,6 +2486,7 @@ def admin_panel():
         dashboard=get_dashboard_snapshot(),
         storage=get_storage_snapshot(),
         error_logs=get_error_logs(limit=50),
+        audit_logs=get_audit_logs(limit=80),
         purchases=purchases,
         purchase_user=purchase_user,
         purchase_vendor=purchase_vendor,
@@ -2495,6 +2568,7 @@ def admin_save_category():
         )
     conn.commit()
     conn.close()
+    log_audit_event("category.save", slug, f"name={name}; active={is_active}; order={sort_order}")
     return redirect(url_for("admin_panel", section="categorias", flash=f"Categoría {name} guardada."))
 
 
@@ -2543,6 +2617,7 @@ def admin_save_command():
     )
     conn.commit()
     conn.close()
+    log_audit_event("command.save", slug, f"name={name}; cost={max(0, cost)}; active={is_active}; category_id={category_id}")
     return redirect(url_for("admin_panel", section="comandos", flash=f"Comando /{slug} guardado."))
 
 
@@ -2605,6 +2680,7 @@ def admin_import_commands():
             created += 1
     conn.commit()
     conn.close()
+    log_audit_event("command.import", "bulk", f"created={created}; updated={updated}; category_id={category_id}")
     return redirect(
         url_for(
             "admin_panel",
@@ -2654,6 +2730,7 @@ def admin_save_buy_package():
         )
     conn.commit()
     conn.close()
+    log_audit_event("buy.save", str(pkg_id or "new"), f"kind={kind}; group={group_slug}; title={title}; active={is_active}")
     return redirect(url_for("admin_panel", section="buy", flash="Paquete de /buy guardado."))
 
 
@@ -2678,6 +2755,7 @@ def admin_save_setting():
     )
     conn.commit()
     conn.close()
+    log_audit_event("setting.save", key, "value updated")
     return redirect(url_for("admin_panel", section="ajustes", flash=f"Ajuste {key} guardado."))
 
 
@@ -2703,6 +2781,7 @@ def admin_save_request_template():
     )
     conn.commit()
     conn.close()
+    log_audit_event("request_template.save", key, f"billable={billable}")
     return redirect(url_for("admin_panel", section="solicitudes", flash=f"Plantilla {key} guardada."))
 
 
@@ -2743,6 +2822,7 @@ def admin_save_user():
     )
     conn.commit()
     conn.close()
+    log_audit_event("user.save", id_tg, f"plan={plan}; rol={rol_tg}; estado={estado}; creditos={creditos}; antispam={antispam}")
     return redirect(url_for("admin_panel", section="usuarios", flash=f"Usuario {id_tg} actualizado."))
 
 
@@ -2810,6 +2890,7 @@ def admin_user_action():
         flash = "Acción no reconocida."
     conn.commit()
     conn.close()
+    log_audit_event("user.action", id_tg, action)
     return redirect(url_for("admin_panel", section="usuarios", uq=id_tg, flash=flash))
 
 
@@ -3004,6 +3085,11 @@ def admin_import_panel():
         )
     req_conn.commit()
     req_conn.close()
+    log_audit_event(
+        "panel.import",
+        "backup",
+        f"categories={len(payload.get('categories', []))}; commands={len(payload.get('commands', []))}; packages={len(payload.get('buy_packages', []))}; templates={len(payload.get('request_templates', []))}",
+    )
     return redirect(url_for("admin_panel", section="herramientas", flash="Respaldo importado correctamente."))
 
 
@@ -3062,6 +3148,11 @@ def admin_bulk_commands():
         count += 1
     conn.commit()
     conn.close()
+    log_audit_event(
+        "command.bulk",
+        category_slug or "all",
+        f"count={count}; status_action={status_action}; cost_action={cost_action}; cost_value={cost_value}",
+    )
     return redirect(url_for("admin_panel", section="herramientas", flash=f"Acción masiva aplicada a {count} comandos."))
 
 
@@ -3071,19 +3162,34 @@ def panel_login():
         return jsonify({"status": "error", "message": "Panel solo disponible localmente"}), 403
     error = ""
     next_url = request.args.get("next") or url_for("admin_panel")
+    ip = request.remote_addr or "unknown"
+    attempts = PANEL_LOGIN_ATTEMPTS.get(ip, [])
+    now_ts = time.time()
+    attempts = [ts for ts in attempts if now_ts - ts < 900]
+    PANEL_LOGIN_ATTEMPTS[ip] = attempts
+    if len(attempts) >= 5:
+        return render_template("admin_login.html", error="Demasiados intentos. Espera 15 minutos."), 429
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
         if username == PANEL_USER and secrets.compare_digest(password, PANEL_PASSWORD):
             session["panel_auth"] = True
+            session["panel_user"] = username
+            PANEL_LOGIN_ATTEMPTS.pop(ip, None)
+            log_audit_event("panel.login", username, "success", actor=username)
             return redirect(next_url)
+        attempts.append(now_ts)
+        PANEL_LOGIN_ATTEMPTS[ip] = attempts
+        log_audit_event("panel.login_failed", username or "unknown", f"attempts={len(attempts)}", actor=username or "unknown")
         error = "Usuario o clave inválidos."
     return render_template("admin_login.html", error=error)
 
 
 @app.route("/admin/logout", methods=["GET"])
 def panel_logout():
+    log_audit_event("panel.logout", session.get("panel_user") or PANEL_USER, "logout")
     session.pop("panel_auth", None)
+    session.pop("panel_user", None)
     return redirect(url_for("panel_login"))
 
 @app.route("/historial_id", methods=["GET"])
