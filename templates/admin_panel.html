@@ -438,7 +438,10 @@
               <h2>Compras</h2>
               <p class="small">Filtra ventas por cliente, vendedor, fecha y tipo.</p>
             </div>
-            <a href="{{ url_for('admin_export_purchases_csv', purchase_user=purchase_user, purchase_vendor=purchase_vendor, purchase_from=purchase_from, purchase_to=purchase_to, purchase_kind=purchase_kind, purchase_status=purchase_status) }}">Exportar CSV</a>
+            <div class="toolbar-right">
+              <a href="{{ url_for('admin_export_purchases_csv', purchase_user=purchase_user, purchase_vendor=purchase_vendor, purchase_from=purchase_from, purchase_to=purchase_to, purchase_kind=purchase_kind, purchase_status=purchase_status) }}">CSV</a>
+              <a href="{{ url_for('admin_export_purchases_json', purchase_user=purchase_user, purchase_vendor=purchase_vendor, purchase_from=purchase_from, purchase_to=purchase_to, purchase_kind=purchase_kind, purchase_status=purchase_status) }}">JSON</a>
+            </div>
           </div>
           <form method="get" action="{{ url_for('admin_panel') }}" class="inline" style="margin-bottom:14px;">
             <input type="hidden" name="section" value="compras">
@@ -514,7 +517,10 @@
               <h2>Historial de consultas</h2>
               <p class="small">Revisa consultas por usuario, comando, plataforma y fecha.</p>
             </div>
-            <a href="{{ url_for('admin_export_history_csv', history_user=history_user, history_command=history_command, history_platform=history_platform, history_from=history_from, history_to=history_to, history_q=history_q) }}">Exportar CSV</a>
+            <div class="toolbar-right">
+              <a href="{{ url_for('admin_export_history_csv', history_user=history_user, history_command=history_command, history_platform=history_platform, history_from=history_from, history_to=history_to, history_q=history_q) }}">CSV</a>
+              <a href="{{ url_for('admin_export_history_json', history_user=history_user, history_command=history_command, history_platform=history_platform, history_from=history_from, history_to=history_to, history_q=history_q) }}">JSON</a>
+            </div>
           </div>
           <form method="get" action="{{ url_for('admin_panel') }}" class="inline" style="margin-bottom:14px;">
             <input type="hidden" name="section" value="historial">

@@ -1538,6 +1538,15 @@ def _csv_response(filename: str, rows: list[dict], fieldnames: list[str]):
     )
 
 
+def _json_download_response(filename: str, payload):
+    body = json.dumps(payload, ensure_ascii=False, indent=2)
+    return Response(
+        body,
+        mimetype="application/json; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 def _is_panel_logged_in() -> bool:
     return bool(session.get("panel_auth"))
 
@@ -3216,6 +3225,34 @@ def admin_export_purchases_csv():
     return _csv_response("spidersyn-compras.csv", rows, ["ID", "ID_TG", "VENDEDOR", "FECHA", "COMPRO", "ESTADO", "NOTAS", "COMPROBANTE"])
 
 
+@app.route("/admin/export/compras.json", methods=["GET"])
+def admin_export_purchases_json():
+    gate = require_panel_login()
+    if gate:
+        return gate
+    filters = {
+        "purchase_user": request.args.get("purchase_user", ""),
+        "purchase_vendor": request.args.get("purchase_vendor", ""),
+        "purchase_from": request.args.get("purchase_from", ""),
+        "purchase_to": request.args.get("purchase_to", ""),
+        "purchase_kind": request.args.get("purchase_kind", ""),
+        "purchase_status": request.args.get("purchase_status", ""),
+    }
+    rows = get_admin_purchases(
+        user_id=filters["purchase_user"],
+        vendor_id=filters["purchase_vendor"],
+        date_from=filters["purchase_from"],
+        date_to=filters["purchase_to"],
+        kind=filters["purchase_kind"],
+        status=filters["purchase_status"],
+        limit=10000,
+    )
+    return _json_download_response(
+        "spidersyn-compras.json",
+        {"exported_at": now_iso(), "filters": filters, "total": len(rows), "data": rows},
+    )
+
+
 @app.route("/admin/purchase/update", methods=["POST"])
 def admin_update_purchase():
     gate = require_panel_login()
@@ -3279,6 +3316,34 @@ def admin_export_history_csv():
         limit=10000,
     )
     return _csv_response("spidersyn-historial.csv", rows, ["ID", "ID_TG", "consulta", "valor", "fecha", "plataforma"])
+
+
+@app.route("/admin/export/historial.json", methods=["GET"])
+def admin_export_history_json():
+    gate = require_panel_login()
+    if gate:
+        return gate
+    filters = {
+        "history_user": request.args.get("history_user", ""),
+        "history_command": request.args.get("history_command", ""),
+        "history_platform": request.args.get("history_platform", ""),
+        "history_from": request.args.get("history_from", ""),
+        "history_to": request.args.get("history_to", ""),
+        "history_q": request.args.get("history_q", ""),
+    }
+    rows = get_admin_history(
+        user_id=filters["history_user"],
+        command=filters["history_command"],
+        platform=filters["history_platform"],
+        date_from=filters["history_from"],
+        date_to=filters["history_to"],
+        q=filters["history_q"],
+        limit=10000,
+    )
+    return _json_download_response(
+        "spidersyn-historial.json",
+        {"exported_at": now_iso(), "filters": filters, "total": len(rows), "data": rows},
+    )
 
 
 @app.route("/admin/db-backup.zip", methods=["GET"])
