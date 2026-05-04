@@ -719,6 +719,37 @@ def get_panel_settings():
     return rows
 
 
+def get_panel_setting(key: str, default: str = "") -> str:
+    try:
+        return str(get_panel_settings().get(key, default) or default)
+    except Exception:
+        return default
+
+
+def save_panel_setting_value(key: str, value: str):
+    conn = get_conn(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO panel_settings (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        (key, value),
+    )
+    conn.commit()
+    conn.close()
+
+
+def verify_panel_password(password: str) -> bool:
+    stored_hash = get_panel_setting("PANEL_PASSWORD_HASH", "")
+    if stored_hash:
+        try:
+            return check_password_hash(stored_hash, password)
+        except Exception:
+            return False
+    return secrets.compare_digest(password, PANEL_PASSWORD)
+
+
 def filter_catalog_commands(commands: list[dict], q: str = "", category: str = "", status: str = ""):
     q = (q or "").strip().lower()
     category = (category or "").strip().lower()
@@ -3394,6 +3425,25 @@ def admin_cleanup_history():
     )
 
 
+@app.route("/admin/password/update", methods=["POST"])
+def admin_update_panel_password():
+    gate = require_panel_login()
+    if gate:
+        return gate
+    current = request.form.get("current_password") or ""
+    new_password = request.form.get("new_password") or ""
+    confirm = request.form.get("confirm_password") or ""
+    if not verify_panel_password(current):
+        return redirect(url_for("admin_panel", section="sistema", flash="Clave actual incorrecta."))
+    if len(new_password) < 8:
+        return redirect(url_for("admin_panel", section="sistema", flash="La nueva clave debe tener mínimo 8 caracteres."))
+    if new_password != confirm:
+        return redirect(url_for("admin_panel", section="sistema", flash="La confirmación no coincide."))
+    save_panel_setting_value("PANEL_PASSWORD_HASH", generate_password_hash(new_password))
+    log_audit_event("panel.password_update", session.get("panel_user") or PANEL_USER, "password changed")
+    return redirect(url_for("admin_panel", section="sistema", flash="Clave del panel actualizada."))
+
+
 def build_db_backup_response():
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -3631,7 +3681,7 @@ def panel_login():
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
-        if username == PANEL_USER and secrets.compare_digest(password, PANEL_PASSWORD):
+        if username == PANEL_USER and verify_panel_password(password):
             session["panel_auth"] = True
             session["panel_user"] = username
             PANEL_LOGIN_ATTEMPTS.pop(ip, None)
