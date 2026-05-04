@@ -96,6 +96,7 @@ from comandos.precios import precios_command
 from comandos.genkey import genkey, redeem, keyslog, keysinfo
 from comandos import admin_requests
 from comandos.manual_catalog import manual_catalog_command
+from comandos.system_ops import status_command, panel_command, backup_command
 
 # ---------- Config ----------
 CONFIG_FILE_PATH = 'config.json'
@@ -247,6 +248,9 @@ def main():
     add_command_handler(application, "terminos", terminos_command)
     add_command_handler(application, "historial", historial_command, use_antispam=True)
     add_command_handler(application, "compras", compras_command, use_antispam=True)
+    add_command_handler(application, "status", status_command)
+    add_command_handler(application, "panel", panel_command)
+    add_command_handler(application, "backup", backup_command)
 
     # Admin ops
     add_command_handler(application, "setcred", setcred_command)

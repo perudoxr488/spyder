@@ -12,6 +12,7 @@ import json
 import csv
 import io
 import zipfile
+import traceback
 from flask_cors import CORS, cross_origin
 from werkzeug.security import check_password_hash, generate_password_hash
 from storage import db_path, get_data_dir
@@ -504,8 +505,55 @@ def init_requests_db():
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS error_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            path TEXT,
+            method TEXT,
+            message TEXT,
+            traceback TEXT,
+            created_at TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
+
+
+def log_error_event(exc: Exception):
+    try:
+        conn = get_conn(REQUESTS_DB_PATH)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO error_logs (path, method, message, traceback, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                request.path,
+                request.method,
+                str(exc),
+                traceback.format_exc()[-6000:],
+                now_iso(),
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(exc):
+    if getattr(exc, "code", None) and int(getattr(exc, "code")) < 500:
+        return exc
+    log_error_event(exc)
+    return (
+        "<h1>Internal Server Error</h1>"
+        "<p>The server encountered an internal error and was unable to complete your request.</p>",
+        500,
+    )
 
 
 def get_catalog_categories():
@@ -1099,6 +1147,39 @@ def get_storage_snapshot():
         "railway_mount": os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or "",
         "items": items,
     }
+
+
+def get_error_logs(limit: int = 50):
+    try:
+        conn = get_conn(REQUESTS_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS error_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT,
+                method TEXT,
+                message TEXT,
+                traceback TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            SELECT id, path, method, message, traceback, created_at
+            FROM error_logs
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
 
 
 def _csv_response(filename: str, rows: list[dict], fieldnames: list[str]):
@@ -2332,6 +2413,7 @@ def admin_panel():
         previews=build_panel_previews(settings, buy_packages, commands),
         dashboard=get_dashboard_snapshot(),
         storage=get_storage_snapshot(),
+        error_logs=get_error_logs(limit=50),
         purchases=purchases,
         purchase_user=purchase_user,
         purchase_vendor=purchase_vendor,
@@ -2769,6 +2851,10 @@ def admin_db_backup_zip():
     gate = require_panel_login()
     if gate:
         return gate
+    return build_db_backup_response()
+
+
+def build_db_backup_response():
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for item in get_storage_snapshot()["items"]:
@@ -2780,6 +2866,14 @@ def admin_db_backup_zip():
         mimetype="application/zip",
         headers={"Content-Disposition": "attachment; filename=spidersyn-db-backup.zip"},
     )
+
+
+@app.route("/internal/db-backup.zip", methods=["GET"])
+def internal_db_backup_zip():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
+    return build_db_backup_response()
 
 
 @app.route("/admin/export", methods=["GET"])

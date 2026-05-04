@@ -928,6 +928,25 @@
               <a class="side-link" href="{{ url_for('admin_export_panel') }}">Descargar catálogo JSON</a>
             </div>
           </div>
+          <div class="card">
+            <h2>Errores recientes</h2>
+            <table>
+              <thead><tr><th>ID</th><th>Ruta</th><th>Error</th><th>Fecha</th></tr></thead>
+              <tbody>
+                {% for err in error_logs %}
+                <tr>
+                  <td>#{{ err.id }}</td>
+                  <td><strong>{{ err.method }}</strong> {{ err.path }}</td>
+                  <td>{{ err.message }}<details><summary class="small">Traceback</summary><pre class="small">{{ err.traceback }}</pre></details></td>
+                  <td>{{ err.created_at or '—' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not error_logs %}
+                <tr><td colspan="4">Sin errores registrados.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
         </div>
         {% endif %}
         {% if active_section == 'estadisticas' %}
