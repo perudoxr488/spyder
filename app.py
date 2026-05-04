@@ -1165,12 +1165,16 @@ def _date_bounds(date_from: str = "", date_to: str = ""):
     return start_iso, end_iso
 
 
-def get_admin_purchases(user_id: str = "", vendor_id: str = "", date_from: str = "", date_to: str = "", kind: str = "", limit: int = 300):
+PURCHASE_STATUSES = {"PENDIENTE", "PAGADA", "ENTREGADA", "CANCELADA"}
+
+
+def get_admin_purchases(user_id: str = "", vendor_id: str = "", date_from: str = "", date_to: str = "", kind: str = "", status: str = "", limit: int = 300):
     clauses = []
     params = []
     user_id = (user_id or "").strip()
     vendor_id = (vendor_id or "").strip()
     kind = (kind or "").strip().lower()
+    status = (status or "").strip().upper()
     start_iso, end_iso = _date_bounds(date_from, date_to)
     if user_id:
         clauses.append("ID_TG LIKE ?")
@@ -1188,6 +1192,9 @@ def get_admin_purchases(user_id: str = "", vendor_id: str = "", date_from: str =
         clauses.append("UPPER(COMPRO) LIKE '%CREDIT%'")
     elif kind == "days":
         clauses.append("(UPPER(COMPRO) LIKE '%DIA%' OR UPPER(COMPRO) LIKE '%DAY%')")
+    if status in PURCHASE_STATUSES:
+        clauses.append("UPPER(COALESCE(ESTADO, 'ENTREGADA')) = ?")
+        params.append(status)
     where = "WHERE " + " AND ".join(clauses) if clauses else ""
     try:
         conn = get_conn(COMPRAS_DB_PATH)
@@ -1195,7 +1202,10 @@ def get_admin_purchases(user_id: str = "", vendor_id: str = "", date_from: str =
         cur = conn.cursor()
         cur.execute(
             f"""
-            SELECT ID, ID_TG, VENDEDOR, FECHA, COMPRO
+            SELECT ID, ID_TG, VENDEDOR, FECHA, COMPRO,
+                   COALESCE(ESTADO, 'ENTREGADA') AS ESTADO,
+                   COALESCE(NOTAS, '') AS NOTAS,
+                   COALESCE(COMPROBANTE, '') AS COMPROBANTE
             FROM compras
             {where}
             ORDER BY FECHA DESC, ID DESC
@@ -1333,15 +1343,20 @@ def get_global_search_results(q: str, limit: int = 25):
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT ID, ID_TG, VENDEDOR, FECHA, COMPRO
+            SELECT ID, ID_TG, VENDEDOR, FECHA, COMPRO,
+                   COALESCE(ESTADO, 'ENTREGADA') AS ESTADO,
+                   COALESCE(NOTAS, '') AS NOTAS,
+                   COALESCE(COMPROBANTE, '') AS COMPROBANTE
             FROM compras
             WHERE LOWER(COALESCE(ID_TG, '')) LIKE ?
                OR LOWER(COALESCE(VENDEDOR, '')) LIKE ?
                OR LOWER(COALESCE(COMPRO, '')) LIKE ?
+               OR LOWER(COALESCE(ESTADO, '')) LIKE ?
+               OR LOWER(COALESCE(NOTAS, '')) LIKE ?
             ORDER BY FECHA DESC, ID DESC
             LIMIT ?
             """,
-            (like, like, like, limit),
+            (like, like, like, like, like, limit),
         )
         results["purchases"] = [dict(row) for row in cur.fetchall()]
         conn.close()
@@ -1617,7 +1632,7 @@ def init_compras_db():
     if exists:
         cur.execute("PRAGMA table_info(compras);")
         cols = [r[1] for r in cur.fetchall()]
-        desired = ["ID", "ID_TG", "VENDEDOR", "FECHA", "COMPRO"]
+        desired = ["ID", "ID_TG", "VENDEDOR", "FECHA", "COMPRO", "ESTADO", "NOTAS", "COMPROBANTE"]
         if cols != desired:
             recreate = True
     else:
@@ -1631,7 +1646,10 @@ def init_compras_db():
                 ID_TG TEXT,
                 VENDEDOR TEXT,
                 FECHA TEXT,
-                COMPRO TEXT
+                COMPRO TEXT,
+                ESTADO TEXT DEFAULT 'ENTREGADA',
+                NOTAS TEXT DEFAULT '',
+                COMPROBANTE TEXT DEFAULT ''
             );
             """
         )
@@ -1641,10 +1659,16 @@ def init_compras_db():
             select_vendedor = "VENDEDOR" if "VENDEDOR" in old_cols else "''"
             select_fecha = "FECHA" if "FECHA" in old_cols else "''"
             select_compro = "COMPRO" if "COMPRO" in old_cols else "''"
+            select_estado = "ESTADO" if "ESTADO" in old_cols else "'ENTREGADA'"
+            select_notas = "NOTAS" if "NOTAS" in old_cols else "''"
+            select_comprobante = "COMPROBANTE" if "COMPROBANTE" in old_cols else "''"
             cur.execute(
                 f"""
-                INSERT INTO compras_new (ID_TG, VENDEDOR, FECHA, COMPRO)
-                SELECT {select_id}, {select_vendedor}, {select_fecha}, {select_compro}
+                INSERT INTO compras_new (ID_TG, VENDEDOR, FECHA, COMPRO, ESTADO, NOTAS, COMPROBANTE)
+                SELECT {select_id}, {select_vendedor}, {select_fecha}, {select_compro},
+                       COALESCE(NULLIF(TRIM({select_estado}), ''), 'ENTREGADA'),
+                       COALESCE({select_notas}, ''),
+                       COALESCE({select_comprobante}, '')
                 FROM compras
                 """
             )
@@ -2654,12 +2678,14 @@ def admin_panel():
     purchase_from = request.args.get("purchase_from", "")
     purchase_to = request.args.get("purchase_to", "")
     purchase_kind = request.args.get("purchase_kind", "")
+    purchase_status = (request.args.get("purchase_status") or "").upper()
     purchases = get_admin_purchases(
         user_id=purchase_user,
         vendor_id=purchase_vendor,
         date_from=purchase_from,
         date_to=purchase_to,
         kind=purchase_kind,
+        status=purchase_status,
         limit=300,
     )
     history_user = request.args.get("history_user", "")
@@ -2738,6 +2764,8 @@ def admin_panel():
         purchase_from=purchase_from,
         purchase_to=purchase_to,
         purchase_kind=purchase_kind,
+        purchase_status=purchase_status,
+        purchase_statuses=sorted(PURCHASE_STATUSES),
         history_rows=history_rows,
         history_user=history_user,
         history_command=history_command,
@@ -3150,9 +3178,58 @@ def admin_export_purchases_csv():
         date_from=request.args.get("purchase_from", ""),
         date_to=request.args.get("purchase_to", ""),
         kind=request.args.get("purchase_kind", ""),
+        status=request.args.get("purchase_status", ""),
         limit=10000,
     )
-    return _csv_response("spidersyn-compras.csv", rows, ["ID", "ID_TG", "VENDEDOR", "FECHA", "COMPRO"])
+    return _csv_response("spidersyn-compras.csv", rows, ["ID", "ID_TG", "VENDEDOR", "FECHA", "COMPRO", "ESTADO", "NOTAS", "COMPROBANTE"])
+
+
+@app.route("/admin/purchase/update", methods=["POST"])
+def admin_update_purchase():
+    gate = require_panel_login()
+    if gate:
+        return gate
+    purchase_id = (request.form.get("purchase_id") or "").strip()
+    estado = (request.form.get("estado") or "ENTREGADA").strip().upper()
+    notas = (request.form.get("notas") or "").strip()
+    comprobante = (request.form.get("comprobante") or "").strip()
+    if estado not in PURCHASE_STATUSES:
+        estado = "ENTREGADA"
+    try:
+        pid = int(purchase_id)
+    except Exception:
+        return redirect(url_for("admin_panel", section="compras", flash="Compra inválida."))
+    conn = get_conn(COMPRAS_DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE compras
+        SET ESTADO = ?, NOTAS = ?, COMPROBANTE = ?
+        WHERE ID = ?
+        """,
+        (estado, notas, comprobante, pid),
+    )
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    if changed:
+        log_audit_event("purchase.update", str(pid), f"estado={estado}; notas={notas[:80]}; comprobante={comprobante[:80]}")
+        flash = f"Compra #{pid} actualizada."
+    else:
+        flash = f"Compra #{pid} no encontrada."
+    return redirect(
+        url_for(
+            "admin_panel",
+            section="compras",
+            purchase_user=request.form.get("purchase_user", ""),
+            purchase_vendor=request.form.get("purchase_vendor", ""),
+            purchase_from=request.form.get("purchase_from", ""),
+            purchase_to=request.form.get("purchase_to", ""),
+            purchase_kind=request.form.get("purchase_kind", ""),
+            purchase_status=request.form.get("purchase_status", ""),
+            flash=flash,
+        )
+    )
 
 
 @app.route("/admin/export/historial.csv", methods=["GET"])

@@ -205,7 +205,7 @@
                 <tr>
                   <td>#{{ row.ID }}</td>
                   <td><a href="{{ url_for('admin_panel', section='usuario', uid=row.ID_TG) }}">{{ row.ID_TG }}</a><div class="small">Vendedor: {{ row.VENDEDOR or '—' }}</div></td>
-                  <td>{{ row.COMPRO or '—' }}</td>
+                  <td>{{ row.COMPRO or '—' }}<div class="small">{{ row.ESTADO or 'ENTREGADA' }}{% if row.NOTAS %} · {{ row.NOTAS }}{% endif %}</div></td>
                   <td>{{ row.FECHA or '—' }}</td>
                 </tr>
                 {% endfor %}
@@ -389,7 +389,7 @@
               <thead><tr><th>ID</th><th>Compra</th><th>Vendedor</th><th>Fecha</th></tr></thead>
               <tbody>
                 {% for row in user_profile.purchases %}
-                <tr><td>#{{ row.ID }}</td><td>{{ row.COMPRO or '—' }}</td><td>{{ row.VENDEDOR or '—' }}</td><td>{{ row.FECHA or '—' }}</td></tr>
+                <tr><td>#{{ row.ID }}</td><td>{{ row.COMPRO or '—' }}<div class="small">{{ row.ESTADO or 'ENTREGADA' }}</div></td><td>{{ row.VENDEDOR or '—' }}</td><td>{{ row.FECHA or '—' }}</td></tr>
                 {% endfor %}
                 {% if not user_profile.purchases %}<tr><td colspan="4">Sin compras.</td></tr>{% endif %}
               </tbody>
@@ -438,7 +438,7 @@
               <h2>Compras</h2>
               <p class="small">Filtra ventas por cliente, vendedor, fecha y tipo.</p>
             </div>
-            <a href="{{ url_for('admin_export_purchases_csv', purchase_user=purchase_user, purchase_vendor=purchase_vendor, purchase_from=purchase_from, purchase_to=purchase_to, purchase_kind=purchase_kind) }}">Exportar CSV</a>
+            <a href="{{ url_for('admin_export_purchases_csv', purchase_user=purchase_user, purchase_vendor=purchase_vendor, purchase_from=purchase_from, purchase_to=purchase_to, purchase_kind=purchase_kind, purchase_status=purchase_status) }}">Exportar CSV</a>
           </div>
           <form method="get" action="{{ url_for('admin_panel') }}" class="inline" style="margin-bottom:14px;">
             <input type="hidden" name="section" value="compras">
@@ -451,18 +451,24 @@
               <option value="credits" {% if purchase_kind == 'credits' %}selected{% endif %}>Créditos</option>
               <option value="days" {% if purchase_kind == 'days' %}selected{% endif %}>Días</option>
             </select>
+            <select name="purchase_status">
+              <option value="">Todo estado</option>
+              {% for status in purchase_statuses %}
+              <option value="{{ status }}" {% if purchase_status == status %}selected{% endif %}>{{ status }}</option>
+              {% endfor %}
+            </select>
             <button type="submit">Filtrar</button>
           </form>
           <div class="summary">
             <div class="metric"><span class="pill">Registros</span><h3>{{ purchases|length }}</h3><div class="small">Resultado actual</div></div>
             <div class="metric"><span class="pill">Clientes</span><h3>{{ purchases|map(attribute='ID_TG')|unique|list|length }}</h3><div class="small">En filtro</div></div>
             <div class="metric"><span class="pill">Vendedores</span><h3>{{ purchases|map(attribute='VENDEDOR')|unique|list|length }}</h3><div class="small">En filtro</div></div>
-            <div class="metric"><span class="pill">Tipo</span><h3>{{ purchase_kind or 'Todo' }}</h3><div class="small">Filtro elegido</div></div>
+            <div class="metric"><span class="pill">Estado</span><h3>{{ purchase_status or 'Todo' }}</h3><div class="small">{{ purchase_kind or 'Todo tipo' }}</div></div>
           </div>
         </div>
         <div class="card">
           <table>
-            <thead><tr><th>ID</th><th>Usuario</th><th>Vendedor</th><th>Compra</th><th>Fecha</th></tr></thead>
+            <thead><tr><th>ID</th><th>Usuario</th><th>Vendedor</th><th>Compra</th><th>Fecha</th><th>Estado y notas</th></tr></thead>
             <tbody>
               {% for row in purchases %}
               <tr>
@@ -471,10 +477,29 @@
                 <td>{{ row.VENDEDOR or '—' }}</td>
                 <td><strong>{{ row.COMPRO or '—' }}</strong></td>
                 <td>{{ row.FECHA or '—' }}</td>
+                <td>
+                  <form method="post" action="{{ url_for('admin_update_purchase') }}">
+                    <input type="hidden" name="purchase_id" value="{{ row.ID }}">
+                    <input type="hidden" name="purchase_user" value="{{ purchase_user }}">
+                    <input type="hidden" name="purchase_vendor" value="{{ purchase_vendor }}">
+                    <input type="hidden" name="purchase_from" value="{{ purchase_from }}">
+                    <input type="hidden" name="purchase_to" value="{{ purchase_to }}">
+                    <input type="hidden" name="purchase_kind" value="{{ purchase_kind }}">
+                    <input type="hidden" name="purchase_status" value="{{ purchase_status }}">
+                    <select name="estado">
+                      {% for status in purchase_statuses %}
+                      <option value="{{ status }}" {% if (row.ESTADO or 'ENTREGADA') == status %}selected{% endif %}>{{ status }}</option>
+                      {% endfor %}
+                    </select>
+                    <input name="notas" value="{{ row.NOTAS or '' }}" placeholder="Nota interna">
+                    <input name="comprobante" value="{{ row.COMPROBANTE or '' }}" placeholder="Comprobante o URL">
+                    <button type="submit">Guardar</button>
+                  </form>
+                </td>
               </tr>
               {% endfor %}
               {% if not purchases %}
-              <tr><td colspan="5">No hay compras con ese filtro.</td></tr>
+              <tr><td colspan="6">No hay compras con ese filtro.</td></tr>
               {% endif %}
             </tbody>
           </table>
