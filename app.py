@@ -1774,6 +1774,9 @@ def row_info_payload(row: sqlite3.Row):
 
 @app.route("/register", methods=["GET"])
 def register():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
     id_tg = request.args.get("ID_TG")
     if not id_tg:
         return jsonify({"status": "error", "exists": False, "message": "Falta el parámetro ID_TG"}), 400
@@ -2258,6 +2261,9 @@ def historial():
 # -------------------------
 @app.route("/reset", methods=["GET"])
 def reset_user():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
     id_tg = request.args.get("ID_TG")
     if not id_tg:
         return jsonify({"status": "error", "message": "Falta el parámetro ID_TG"}), 400
@@ -2286,6 +2292,9 @@ def reset_user():
 
 @app.route("/estado", methods=["GET"])
 def estado():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
     id_tg = request.args.get("ID_TG")
     valor = (request.args.get("valor") or "").upper()
     if not id_tg or not valor:
@@ -2313,6 +2322,9 @@ def _safe_parse_date(s: str):
 
 @app.route("/estadisticas", methods=["GET"])
 def estadisticas():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
     try:
         # --------- HISTORIAL: conteos hoy / globales y tops ----------
         today = now_utc().date()
