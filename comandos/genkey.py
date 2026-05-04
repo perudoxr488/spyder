@@ -95,6 +95,33 @@ def _parse_positive_int(value: str, field: str) -> tuple[int | None, str | None]
     return num, None
 
 
+def _normalize_tipo(value: str) -> str | None:
+    s = (value or "").strip().lower()
+    aliases = {
+        "dia": "dias",
+        "dias": "dias",
+        "d": "dias",
+        "day": "dias",
+        "days": "dias",
+        "credito": "creditos",
+        "creditos": "creditos",
+        "cred": "creditos",
+        "creds": "creditos",
+        "c": "creditos",
+    }
+    return aliases.get(s)
+
+
+def _usage_text() -> str:
+    return (
+        "Uso:\n"
+        "<code>/genkey dias 12</code> ➜ 1 key de 12 días, 1 uso\n"
+        "<code>/genkey creditos 100</code> ➜ 1 key de 100 créditos, 1 uso\n"
+        "<code>/genkey dias 30 3</code> ➜ 1 key de 30 días, 3 usos\n"
+        "<code>/genkey creditos 50 1 10</code> ➜ 10 keys de 50 créditos"
+    )
+
+
 async def genkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     user = update.effective_user
@@ -105,29 +132,35 @@ async def genkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("❌ API_BASE no está configurada; no puedo generar keys persistentes.")
         return
 
-    if len(context.args) < 3:
+    if len(context.args) < 2:
         await msg.reply_text(
-            "Uso: <code>/genkey dias|creditos cantidad usos [total]</code>",
+            _usage_text(),
             parse_mode="HTML",
             reply_to_message_id=msg.message_id,
         )
         return
 
-    tipo = context.args[0].strip().lower()
-    if tipo not in {"dias", "creditos"}:
-        await msg.reply_text("Tipo inválido. Usa: <code>dias</code> o <code>creditos</code>.", parse_mode="HTML")
+    args = list(context.args)
+    if len(args) >= 2 and args[0].isdigit() and _normalize_tipo(args[1]):
+        args[0], args[1] = args[1], args[0]
+
+    tipo = _normalize_tipo(args[0])
+    if not tipo:
+        await msg.reply_text("Tipo inválido. Usa: <code>dias</code> o <code>creditos</code>.\n\n" + _usage_text(), parse_mode="HTML")
         return
-    cantidad, err = _parse_positive_int(context.args[1], "cantidad")
+    cantidad, err = _parse_positive_int(args[1], "cantidad")
     if err:
         await msg.reply_text(f"❌ {html.escape(err)}", parse_mode="HTML")
         return
-    usos, err = _parse_positive_int(context.args[2], "usos")
-    if err:
-        await msg.reply_text(f"❌ {html.escape(err)}", parse_mode="HTML")
-        return
+    usos = 1
+    if len(args) >= 3:
+        usos, err = _parse_positive_int(args[2], "usos")
+        if err:
+            await msg.reply_text(f"❌ {html.escape(err)}", parse_mode="HTML")
+            return
     total = 1
-    if len(context.args) >= 4:
-        total, err = _parse_positive_int(context.args[3], "total")
+    if len(args) >= 4:
+        total, err = _parse_positive_int(args[3], "total")
         if err:
             await msg.reply_text(f"❌ {html.escape(err)}", parse_mode="HTML")
             return

@@ -1,6 +1,9 @@
 import os
 import json
 import sqlite3
+import time
+from urllib import request as _urlreq
+from urllib.error import HTTPError, URLError
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 from storage import db_path
@@ -9,6 +12,7 @@ from storage import db_path
 CONFIG_FILE_PATH = 'config.json'
 DB_PATH = db_path("multiplataforma.db")
 cfg = {}
+_SETTINGS_CACHE = {"ts": 0.0, "data": None}
 if os.path.exists(CONFIG_FILE_PATH):
     try:
         with open(CONFIG_FILE_PATH, 'r', encoding='utf-8') as f:
@@ -25,7 +29,66 @@ def btn(text: str, url: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text, url=url)
 
 
+API_BASE = (
+    os.environ.get("SPIDERSYN_API_BASE")
+    or os.environ.get("API_BASE")
+    or os.environ.get("API_DB_BASE")
+    or cfg.get("API_DB_BASE")
+    or cfg.get("API_BASE")
+    or ""
+).rstrip("/")
+INTERNAL_API_KEY = (
+    os.environ.get("SPIDERSYN_INTERNAL_API_KEY")
+    or os.environ.get("INTERNAL_API_KEY")
+    or cfg.get("INTERNAL_API_KEY")
+    or cfg.get("TOKEN_BOT")
+    or ""
+).strip()
+
+
+def _fetch_json(url: str, timeout: int = 12):
+    headers = {"User-Agent": "SpiderSynBot/1.0"}
+    if INTERNAL_API_KEY:
+        headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
+    req = _urlreq.Request(url, headers=headers)
+    try:
+        with _urlreq.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            try:
+                return resp.getcode() or 200, json.loads(body)
+            except Exception:
+                return resp.getcode() or 200, {"status": "error", "message": body}
+    except HTTPError as e:
+        try:
+            body = e.read().decode("utf-8", errors="replace")
+            return e.code, json.loads(body)
+        except Exception:
+            return e.code, {"status": "error", "message": str(e)}
+    except URLError as e:
+        return 599, {"status": "error", "message": str(e)}
+    except Exception as e:
+        return 500, {"status": "error", "message": str(e)}
+
+
+def _get_remote_settings() -> dict:
+    now = time.monotonic()
+    if _SETTINGS_CACHE["data"] is not None and now - float(_SETTINGS_CACHE["ts"]) < 30:
+        return _SETTINGS_CACHE["data"]
+    if not API_BASE:
+        return {}
+    status, data = _fetch_json(f"{API_BASE}/bot_catalog", timeout=12)
+    if status == 200 and data.get("status") == "ok":
+        settings = ((data.get("data") or {}).get("settings") or {})
+        _SETTINGS_CACHE["ts"] = now
+        _SETTINGS_CACHE["data"] = settings
+        return settings
+    return {}
+
+
 def _get_panel_settings():
+    remote = _get_remote_settings()
+    if remote:
+        return remote
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -67,13 +130,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (settings.get("BT_SELLER3") or cfg.get("BT_SELLER3"), settings.get("SELLER_LINK3") or cfg.get("SELLER_LINK3")),
     ]
 
-    if not (non_empty(GRUPO_LINK) and non_empty(CANAL_LINK) and non_empty(OWNER_LINK)):
-        await update.message.reply_text(
-            "⚠️ Config incompleta: faltan enlaces obligatorios (GRUPO_LINK, CANAL_LINK u OWNER_LINK) en config.json.",
-            reply_to_message_id=update.message.message_id
-        )
-        return
-
     marca_visible = MARCA or NAME or "BOT"
     version_line = f" - <code>{VERSION}</code>" if non_empty(VERSION) else ""
     caption = (
@@ -90,11 +146,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # Botones obligatorios
-    buttons = [
-        btn(f"[💭] {BT_GRUPO}", GRUPO_LINK),
-        btn(f"[📣] {BT_CANAL}", CANAL_LINK),
-        btn(f"[❄️] {BT_OWNER}", OWNER_LINK),
-    ]
+    buttons = []
+    if non_empty(GRUPO_LINK):
+        buttons.append(btn(f"[💭] {BT_GRUPO}", GRUPO_LINK))
+    if non_empty(CANAL_LINK):
+        buttons.append(btn(f"[📣] {BT_CANAL}", CANAL_LINK))
+    if non_empty(OWNER_LINK):
+        buttons.append(btn(f"[❄️] {BT_OWNER}", OWNER_LINK))
 
     # Botones opcionales (sellers)
     for text, url in sellers_raw:
@@ -106,7 +164,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for i in range(0, len(buttons), 2):
         rows.append(buttons[i:i+2])
 
-    keyboard = InlineKeyboardMarkup(rows)
+    keyboard = InlineKeyboardMarkup(rows) if rows else None
 
     if non_empty(LOGO_URL):
         await update.message.reply_photo(

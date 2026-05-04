@@ -322,9 +322,9 @@ def _parse_request_target(message_text: str, reply_to_message, command_name: str
     request_id = None
     content = ""
 
-    if len(parts) >= 3 and parts[1].isdigit():
+    if len(parts) >= 2 and parts[1].isdigit():
         request_id = int(parts[1])
-        content = parts[2].strip()
+        content = parts[2].strip() if len(parts) >= 3 else ""
     elif len(parts) >= 2 and reply_to_message:
         content = raw_text[len(command_name):].strip()
 
@@ -516,8 +516,17 @@ def _set_action_state(context: ContextTypes.DEFAULT_TYPE, action: str, request_i
     context.user_data[REQUEST_ACTION_KEY] = {"action": action, "request_id": request_id}
 
 
+def _remember_request(context: ContextTypes.DEFAULT_TYPE, request_id: int):
+    context.user_data[REQUEST_ACTION_KEY] = {"action": "last", "request_id": request_id}
+
+
 def _clear_action_state(context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.pop(REQUEST_ACTION_KEY, None)
+    state = context.user_data.get(REQUEST_ACTION_KEY) or {}
+    request_id = state.get("request_id")
+    if request_id:
+        context.user_data[REQUEST_ACTION_KEY] = {"action": "last", "request_id": request_id}
+    else:
+        context.user_data.pop(REQUEST_ACTION_KEY, None)
 
 
 async def _send_request_reply(context: ContextTypes.DEFAULT_TYPE, admin_id: int, request_id: int, reply_text: str):
@@ -984,6 +993,8 @@ async def quick_reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     ok, msg = await _send_template_by_id(context, update.effective_user.id, request_id, template_key)
+    if ok:
+        _remember_request(context, request_id)
     await update.message.reply_text(msg)
 
 
@@ -1131,6 +1142,8 @@ async def request_buttons_callback(update: Update, context: ContextTypes.DEFAULT
     if action == "tpl" and len(parts) >= 4:
         template_key = parts[3].strip().lower()
         ok, msg = await _send_template_by_id(context, update.effective_user.id, request_id, template_key)
+        if ok:
+            _remember_request(context, request_id)
         await query.message.reply_text(msg)
         return
 
@@ -1147,6 +1160,8 @@ async def admin_followup_message(update: Update, context: ContextTypes.DEFAULT_T
 
     request_id = state.get("request_id")
     action = (state.get("action") or "").strip().lower()
+    if action == "last":
+        return
     text = (update.message.text or "").strip()
     if text == ".":
         text = ""
