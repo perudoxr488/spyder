@@ -210,6 +210,24 @@ def _log_compra(id_tg: str, id_vendedor: str, cantidad_texto: str):
         pass
 
 
+async def _notify_admin_purchase(context: ContextTypes.DEFAULT_TYPE, *, target_id: str, seller_id: str, cantidad_texto: str, plan_txt: str | None, source: str):
+    if not ADMIN_IDS:
+        return
+    text = (
+        f"🛒 <b>{html.escape(str(BOT_BRAND))} • Nueva compra registrada</b>\n\n"
+        f"Cliente: {_badge(target_id)}\n"
+        f"Vendedor: {_badge(seller_id)}\n"
+        f"Tipo: {_badge(source)}\n"
+        f"Plan: {_badge(plan_txt or '—')}\n"
+        f"Compra: {_badge(cantidad_texto)}"
+    )
+    for admin_id in ADMIN_IDS:
+        try:
+            await context.bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML")
+        except Exception:
+            pass
+
+
 def _set_antispam(id_tg: str, valor: int) -> Tuple[int, dict]:
     return _fetch_json(
         ANTISPAM_ENDPOINT,
@@ -371,6 +389,14 @@ async def _handle_cred_like(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     cantidad_txt = _amount_label(oper, cantidad, "CREDITOS")
     _log_compra(id_tg=target_id, id_vendedor=str(caller.id), cantidad_texto=cantidad_txt)
+    await _notify_admin_purchase(
+        context,
+        target_id=target_id,
+        seller_id=str(caller.id),
+        cantidad_texto=cantidad_txt,
+        plan_txt=plan_txt,
+        source="CREDITOS",
+    )
 
     new_cred = js.get("CREDITOS", (js.get("data") or {}).get("CREDITOS", "—"))
     lines = [
@@ -463,6 +489,14 @@ async def _handle_sub_like(update: Update, context: ContextTypes.DEFAULT_TYPE, o
 
     cantidad_txt = _amount_label(oper, cantidad, "DIAS")
     _log_compra(id_tg=target_id, id_vendedor=str(caller.id), cantidad_texto=cantidad_txt)
+    await _notify_admin_purchase(
+        context,
+        target_id=target_id,
+        seller_id=str(caller.id),
+        cantidad_texto=cantidad_txt,
+        plan_txt=plan_txt,
+        source="DIAS",
+    )
 
     lines = [
         f"Cliente: {_badge(target_id)}",
