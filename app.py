@@ -209,6 +209,9 @@ def init_keys_db():
     )
     """)
 
+    c.execute("CREATE INDEX IF NOT EXISTS idx_redemptions_key ON redemptions(key)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_redemptions_user ON redemptions(user_id)")
+
     conn.commit()
     conn.close()    
 
@@ -1071,6 +1074,72 @@ def get_request_templates():
     return items
 
 
+def get_key_items(q: str = "", tipo: str = "", status: str = "", limit: int = 200):
+    q = (q or "").strip().upper()
+    tipo = (tipo or "").strip().lower()
+    status = (status or "").strip().lower()
+    items = []
+    try:
+        init_keys_db()
+        conn = get_conn(KEYS_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        clauses = []
+        params = []
+        if q:
+            clauses.append("(k.key LIKE ? OR CAST(k.creador_id AS TEXT) LIKE ?)")
+            params.extend([f"%{q}%", f"%{q}%"])
+        if tipo in {"dias", "creditos"}:
+            clauses.append("k.tipo = ?")
+            params.append(tipo)
+        if status == "available":
+            clauses.append("k.usos > 0")
+        elif status == "used":
+            clauses.append("k.usos <= 0")
+        where = "WHERE " + " AND ".join(clauses) if clauses else ""
+        cur.execute(
+            f"""
+            SELECT k.key, k.tipo, k.cantidad, k.usos, k.creador_id, k.fecha_creacion,
+                   COUNT(r.id) AS canjes
+            FROM keys k
+            LEFT JOIN redemptions r ON r.key = k.key
+            {where}
+            GROUP BY k.key, k.tipo, k.cantidad, k.usos, k.creador_id, k.fecha_creacion
+            ORDER BY k.fecha_creacion DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        )
+        items = [dict(row) for row in cur.fetchall()]
+        conn.close()
+    except Exception:
+        items = []
+    return items
+
+
+def get_key_redemptions(limit: int = 80):
+    try:
+        init_keys_db()
+        conn = get_conn(KEYS_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT r.key, r.user_id, r.fecha_canje, k.tipo, k.cantidad
+            FROM redemptions r
+            JOIN keys k ON r.key = k.key
+            ORDER BY r.fecha_canje DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
 def filter_request_items(items: list[dict], q: str = "", status: str = "", command: str = ""):
     q = (q or "").strip().lower()
     status = (status or "").strip().lower()
@@ -1224,6 +1293,7 @@ PANEL_SECTION_ACCESS = {
     "usuario": {"FUNDADOR", "CO-FUNDADOR", "SELLER", "SOPORTE"},
     "historial": {"FUNDADOR", "CO-FUNDADOR", "SOPORTE"},
     "solicitudes": {"FUNDADOR", "CO-FUNDADOR", "SOPORTE"},
+    "keys": {"FUNDADOR", "CO-FUNDADOR"},
     "categorias": {"FUNDADOR", "CO-FUNDADOR"},
     "comandos": {"FUNDADOR", "CO-FUNDADOR"},
     "buy": {"FUNDADOR", "CO-FUNDADOR"},
@@ -1243,6 +1313,7 @@ PANEL_NAV_ITEMS = [
     ("vendedores", "Vendedores"),
     ("ajustes", "Ajustes Visuales"),
     ("solicitudes", "Solicitudes"),
+    ("keys", "Keys"),
     ("herramientas", "Herramientas"),
     ("sistema", "Sistema"),
     ("estadisticas", "Estadísticas"),
@@ -2324,6 +2395,213 @@ def sub():
     conn.commit(); conn.close()
     return jsonify({"status": "ok", "message": f"Fecha de caducidad {oper}", "FECHA_DE_CADUCIDAD": new_iso}), 200
 
+
+def generate_license_key() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    chunks = ["".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(4)]
+    return "-".join(chunks)
+
+
+@app.route("/keys/generate", methods=["POST"])
+def keys_generate():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
+    tipo = (request_value("tipo") or "").strip().lower()
+    creador_id = str(request_value("creador_id") or "").strip()
+    try:
+        cantidad = int(request_value("cantidad") or 0)
+        usos = int(request_value("usos") or 0)
+        total = int(request_value("total") or 1)
+    except Exception:
+        return jsonify({"status": "error", "message": "cantidad, usos y total deben ser enteros"}), 400
+    if tipo not in {"dias", "creditos"}:
+        return jsonify({"status": "error", "message": "tipo debe ser dias o creditos"}), 400
+    if cantidad <= 0 or usos <= 0 or total <= 0:
+        return jsonify({"status": "error", "message": "cantidad, usos y total deben ser mayores a 0"}), 400
+    if total > 100:
+        return jsonify({"status": "error", "message": "No puedes generar más de 100 keys por lote"}), 400
+    if not creador_id.isdigit():
+        return jsonify({"status": "error", "message": "creador_id inválido"}), 400
+
+    init_keys_db()
+    conn = get_conn(KEYS_DB_PATH)
+    cur = conn.cursor()
+    created = []
+    for _ in range(total):
+        for _attempt in range(20):
+            key = generate_license_key()
+            try:
+                cur.execute(
+                    "INSERT INTO keys (key, tipo, cantidad, usos, creador_id) VALUES (?, ?, ?, ?, ?)",
+                    (key, tipo, cantidad, usos, int(creador_id)),
+                )
+                created.append(key)
+                break
+            except sqlite3.IntegrityError:
+                continue
+        else:
+            conn.rollback()
+            conn.close()
+            return jsonify({"status": "error", "message": "No se pudo generar una key única"}), 500
+    conn.commit()
+    conn.close()
+    return jsonify({
+        "status": "ok",
+        "message": "Keys generadas correctamente",
+        "data": {"keys": created, "tipo": tipo, "cantidad": cantidad, "usos": usos},
+    }), 200
+
+
+@app.route("/keys/redeem", methods=["POST"])
+def keys_redeem():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
+    key_input = (request_value("key") or "").strip().upper()
+    user_id = str(request_value("ID_TG") or request_value("user_id") or "").strip()
+    if not key_input or not user_id:
+        return jsonify({"status": "error", "message": "Parámetros requeridos: key, ID_TG"}), 400
+    if not user_id.isdigit():
+        return jsonify({"status": "error", "message": "ID_TG inválido"}), 400
+    row = get_user_by_id(user_id)
+    if not row:
+        return jsonify({"status": "error", "message": "Usuario no encontrado. Usa /register primero."}), 404
+
+    init_keys_db()
+    conn_keys = get_conn(KEYS_DB_PATH)
+    ck = conn_keys.cursor()
+    conn_users = None
+    try:
+        ck.execute("BEGIN IMMEDIATE")
+        ck.execute("SELECT key, tipo, cantidad, usos FROM keys WHERE key = ?", (key_input,))
+        key_row = ck.fetchone()
+        if not key_row:
+            conn_keys.rollback()
+            return jsonify({"status": "error", "message": "Key inválida"}), 404
+        key, tipo, cantidad, usos = key_row
+        cantidad = int(cantidad or 0)
+        usos = int(usos or 0)
+        if usos <= 0:
+            conn_keys.rollback()
+            return jsonify({"status": "error", "message": "Esta key ya no tiene usos disponibles"}), 409
+        ck.execute("SELECT 1 FROM redemptions WHERE key = ? AND user_id = ? LIMIT 1", (key, int(user_id)))
+        if ck.fetchone():
+            conn_keys.rollback()
+            return jsonify({"status": "error", "message": "Ya canjeaste esta key anteriormente"}), 409
+
+        conn_users = get_conn()
+        cu = conn_users.cursor()
+        if tipo == "creditos":
+            current = int(row["creditos"] or 0)
+            new_value = current + cantidad
+            cu.execute("UPDATE usuarios SET creditos = ? WHERE id_tg = ?", (new_value, user_id))
+            result = {"CREDITOS": new_value}
+            message = f"Has canjeado {cantidad} créditos."
+        elif tipo == "dias":
+            now = now_utc()
+            fcad = row["fecha_caducidad"]
+            try:
+                current_dt = parse_iso(fcad) if fcad else now
+            except Exception:
+                current_dt = now
+            base_dt = current_dt if current_dt > now else now
+            new_dt = base_dt + timedelta(days=cantidad)
+            new_iso = new_dt.replace(microsecond=0).isoformat() + "Z"
+            cu.execute("UPDATE usuarios SET fecha_caducidad = ? WHERE id_tg = ?", (new_iso, user_id))
+            result = {"FECHA_DE_CADUCIDAD": new_iso}
+            message = f"Has canjeado {cantidad} días."
+        else:
+            conn_users.close()
+            conn_keys.rollback()
+            return jsonify({"status": "error", "message": "Tipo de key inválido"}), 400
+
+        ck.execute("UPDATE keys SET usos = usos - 1 WHERE key = ?", (key,))
+        ck.execute("INSERT INTO redemptions (key, user_id) VALUES (?, ?)", (key, int(user_id)))
+        conn_users.commit()
+        conn_users.close()
+        conn_keys.commit()
+    except Exception as exc:
+        try:
+            conn_keys.rollback()
+        except Exception:
+            pass
+        try:
+            if conn_users:
+                conn_users.rollback()
+                conn_users.close()
+        except Exception:
+            pass
+        return jsonify({"status": "error", "message": f"No se pudo canjear la key: {exc}"}), 500
+    finally:
+        conn_keys.close()
+
+    return jsonify({
+        "status": "ok",
+        "message": message,
+        "data": {"key": key, "tipo": tipo, "cantidad": cantidad, "usos_restantes": usos - 1, **result},
+    }), 200
+
+
+@app.route("/keys/info", methods=["GET", "POST"])
+def keys_info():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
+    key_input = (request_value("key") or "").strip().upper()
+    if not key_input:
+        return jsonify({"status": "error", "message": "Falta key"}), 400
+    init_keys_db()
+    conn = get_conn(KEYS_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT key, tipo, cantidad, usos, creador_id, fecha_creacion
+        FROM keys WHERE key = ?
+        """,
+        (key_input,),
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"status": "error", "message": "Key no encontrada"}), 404
+    cur.execute("SELECT COUNT(*) FROM redemptions WHERE key = ?", (key_input,))
+    redemptions_count = cur.fetchone()[0]
+    conn.close()
+    data = dict(row)
+    data["canjes"] = redemptions_count
+    return jsonify({"status": "ok", "data": data}), 200
+
+
+@app.route("/keys/log", methods=["GET"])
+def keys_log():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
+    try:
+        limit = int(request_value("limit") or 15)
+    except Exception:
+        limit = 15
+    limit = max(1, min(limit, 100))
+    init_keys_db()
+    conn = get_conn(KEYS_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT r.key, r.user_id, r.fecha_canje, k.tipo, k.cantidad
+        FROM redemptions r
+        JOIN keys k ON r.key = k.key
+        ORDER BY r.fecha_canje DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    return jsonify({"status": "ok", "data": rows}), 200
+
 # -------------------------
 # Plan y Roles
 # -------------------------
@@ -2939,7 +3217,7 @@ def admin_panel():
         return gate
     flash = request.args.get("flash", "")
     active_section = (request.args.get("section") or "resumen").strip().lower()
-    if active_section not in {"resumen", "buscar", "categorias", "comandos", "buy", "usuarios", "usuario", "compras", "historial", "vendedores", "ajustes", "solicitudes", "herramientas", "sistema", "estadisticas"}:
+    if active_section not in {"resumen", "buscar", "categorias", "comandos", "buy", "usuarios", "usuario", "compras", "historial", "vendedores", "ajustes", "solicitudes", "keys", "herramientas", "sistema", "estadisticas"}:
         active_section = "resumen"
     panel_role = panel_current_role()
     if not panel_can_access_section(active_section, panel_role):
@@ -3010,6 +3288,17 @@ def admin_panel():
         "failed": len([r for r in all_requests if (r.get("status") or "") == "failed"]),
     }
     request_command_options = sorted({(r.get("command") or "").strip().lower() for r in all_requests if r.get("command")})
+    key_q = request.args.get("key_q", "")
+    key_tipo = request.args.get("key_tipo", "")
+    key_status = request.args.get("key_status", "")
+    key_items = get_key_items(q=key_q, tipo=key_tipo, status=key_status, limit=200)
+    key_redemptions = get_key_redemptions(limit=80)
+    key_counts = {
+        "total": len(get_key_items(limit=10000)),
+        "available": len(get_key_items(status="available", limit=10000)),
+        "used": len(get_key_items(status="used", limit=10000)),
+        "redemptions": len(key_redemptions),
+    }
     q = request.args.get("q", "")
     category_filter = request.args.get("category", "")
     status_filter = request.args.get("status", "")
@@ -3073,6 +3362,12 @@ def admin_panel():
         request_status=request_status,
         request_command=request_command,
         request_templates=get_request_templates(),
+        key_items=key_items,
+        key_redemptions=key_redemptions,
+        key_counts=key_counts,
+        key_q=key_q,
+        key_tipo=key_tipo,
+        key_status=key_status,
         user_q=user_q,
         user_status=user_status,
         user_plan=user_plan,

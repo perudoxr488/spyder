@@ -744,6 +744,77 @@
       </div>
       </div>
       {% endif %}
+      {% if active_section == 'keys' %}
+      <div class="stack">
+      <div class="card">
+        <h2>Keys</h2>
+        <p class="small">Genera desde Telegram con <code>/genkey dias|creditos cantidad usos [total]</code>. Esta vista muestra lo persistido en la DB del web.</p>
+        <form method="get" action="{{ url_for('admin_panel') }}" class="inline" style="margin-top:14px;">
+          <input type="hidden" name="section" value="keys">
+          <input name="key_q" value="{{ key_q }}" placeholder="Buscar key o creador">
+          <select name="key_tipo">
+            <option value="">Todos los tipos</option>
+            <option value="creditos" {% if key_tipo == 'creditos' %}selected{% endif %}>Créditos</option>
+            <option value="dias" {% if key_tipo == 'dias' %}selected{% endif %}>Días</option>
+          </select>
+          <select name="key_status">
+            <option value="">Todos los estados</option>
+            <option value="available" {% if key_status == 'available' %}selected{% endif %}>Disponibles</option>
+            <option value="used" {% if key_status == 'used' %}selected{% endif %}>Agotadas</option>
+          </select>
+          <button type="submit">Filtrar</button>
+        </form>
+        <div class="summary" style="margin-top:14px;">
+          <div class="metric"><span class="pill">Total</span><h3>{{ key_counts.total }}</h3><div class="small">Keys creadas</div></div>
+          <div class="metric"><span class="pill">Disponibles</span><h3>{{ key_counts.available }}</h3><div class="small">Con usos restantes</div></div>
+          <div class="metric"><span class="pill">Agotadas</span><h3>{{ key_counts.used }}</h3><div class="small">Sin usos</div></div>
+          <div class="metric"><span class="pill">Canjes</span><h3>{{ key_counts.redemptions }}</h3><div class="small">Últimos visibles</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Listado de keys</h2>
+        <table>
+          <thead><tr><th>Key</th><th>Tipo</th><th>Cantidad</th><th>Usos</th><th>Canjes</th><th>Creador</th><th>Fecha</th></tr></thead>
+          <tbody>
+            {% for item in key_items %}
+            <tr>
+              <td><strong>{{ item.key }}</strong></td>
+              <td>{{ item.tipo }}</td>
+              <td>{{ item.cantidad }}</td>
+              <td><span class="badge {% if item.usos > 0 %}ok{% else %}off{% endif %}">{{ item.usos }}</span></td>
+              <td>{{ item.canjes }}</td>
+              <td>{{ item.creador_id }}</td>
+              <td>{{ item.fecha_creacion or '—' }}</td>
+            </tr>
+            {% endfor %}
+            {% if not key_items %}
+            <tr><td colspan="7">Sin keys para este filtro.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Últimos canjes</h2>
+        <table>
+          <thead><tr><th>Key</th><th>Usuario</th><th>Tipo</th><th>Cantidad</th><th>Fecha</th></tr></thead>
+          <tbody>
+            {% for row in key_redemptions %}
+            <tr>
+              <td><strong>{{ row.key }}</strong></td>
+              <td><a href="{{ url_for('admin_panel', section='usuario', uid=row.user_id) }}">{{ row.user_id }}</a></td>
+              <td>{{ row.tipo }}</td>
+              <td>{{ row.cantidad }}</td>
+              <td>{{ row.fecha_canje or '—' }}</td>
+            </tr>
+            {% endfor %}
+            {% if not key_redemptions %}
+            <tr><td colspan="5">No hay canjes registrados.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      </div>
+      {% endif %}
       {% if active_section == 'categorias' or active_section == 'comandos' %}
       <div class="section-grid" {% if active_section in ['buy', 'ajustes'] %}style="grid-template-columns:1fr;"{% endif %}>
       <div class="stack" id="sec-categorias">

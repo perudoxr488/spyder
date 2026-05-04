@@ -1,12 +1,12 @@
-import sqlite3
-import random
-import string
-import os
+import html
 import json
-from datetime import datetime, timedelta
+import os
+from urllib import parse as _urlparse
+from urllib import request as _urlreq
+from urllib.error import HTTPError, URLError
+
 from telegram import Update
 from telegram.ext import ContextTypes
-from storage import db_path
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE_PATH = os.path.join(BASE_DIR, "config.json")
@@ -19,194 +19,255 @@ if os.path.exists(CONFIG_FILE_PATH):
     except Exception:
         CFG = {}
 
-_admin_raw = CFG.get("ADMIN_ID")
+_admin_raw = os.environ.get("SPIDERSYN_ADMIN_ID") or os.environ.get("ADMIN_ID") or CFG.get("ADMIN_ID")
 if isinstance(_admin_raw, list):
-    ADMIN_IDS = {int(x) for x in _admin_raw if str(x).isdigit()}
+    _admin_values = _admin_raw
 elif _admin_raw is None:
-    ADMIN_IDS = set()
+    _admin_values = []
 else:
-    ADMIN_IDS = {int(_admin_raw)} if str(_admin_raw).isdigit() else set()
+    _admin_values = str(_admin_raw).replace(",", " ").split()
+ADMIN_IDS = {int(x) for x in _admin_values if str(x).strip().isdigit()}
 
-# -------------------- CONEXIONES A DB --------------------
-def connect_users():
-    return sqlite3.connect(db_path("multiplataforma.db"))
+API_BASE = (
+    os.environ.get("SPIDERSYN_API_BASE")
+    or os.environ.get("API_BASE")
+    or os.environ.get("API_DB_BASE")
+    or CFG.get("API_DB_BASE")
+    or CFG.get("API_BASE")
+    or ""
+).rstrip("/")
+INTERNAL_API_KEY = (
+    os.environ.get("SPIDERSYN_INTERNAL_API_KEY")
+    or os.environ.get("INTERNAL_API_KEY")
+    or CFG.get("INTERNAL_API_KEY")
+    or CFG.get("TOKEN_BOT")
+    or ""
+).strip()
 
-def connect_keys():
-    return sqlite3.connect(db_path("keys.db"))
 
-# -------------------- GENERAR KEYS --------------------
-def generar_key():
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
+def _fetch_json(url: str, timeout: int = 15, method: str = "GET", payload: dict | None = None):
+    headers = {"User-Agent": "SpiderSynBot/1.0"}
+    data = None
+    if INTERNAL_API_KEY:
+        headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(payload).encode("utf-8")
+    req = _urlreq.Request(url, data=data, headers=headers, method=method)
+    try:
+        with _urlreq.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            try:
+                return resp.getcode() or 200, json.loads(body)
+            except Exception:
+                return resp.getcode() or 200, {"status": "error", "message": body}
+    except HTTPError as e:
+        try:
+            body = e.read().decode("utf-8", errors="replace")
+            return e.code, json.loads(body)
+        except Exception:
+            return e.code, {"status": "error", "message": str(e)}
+    except URLError as e:
+        return 599, {"status": "error", "message": str(e)}
+    except Exception as e:
+        return 500, {"status": "error", "message": str(e)}
+
+
+def _api_ready() -> bool:
+    return bool(API_BASE)
+
+
+def _is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
+
+def _badge(value) -> str:
+    return f"<code>{html.escape(str(value))}</code>"
+
+
+def _parse_positive_int(value: str, field: str) -> tuple[int | None, str | None]:
+    try:
+        num = int(value)
+    except Exception:
+        return None, f"{field} debe ser un número entero."
+    if num <= 0:
+        return None, f"{field} debe ser mayor a 0."
+    return num, None
+
 
 async def genkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ No tienes permisos para usar este comando.")
+    msg = update.effective_message
+    user = update.effective_user
+    if not user or not _is_admin(user.id):
+        await msg.reply_text("❌ No tienes permisos para usar este comando.")
+        return
+    if not _api_ready():
+        await msg.reply_text("❌ API_BASE no está configurada; no puedo generar keys persistentes.")
         return
 
     if len(context.args) < 3:
-        await update.message.reply_text("Uso: /genkey <dias|creditos> <cantidad> <usos>")
+        await msg.reply_text(
+            "Uso: <code>/genkey dias|creditos cantidad usos [total]</code>",
+            parse_mode="HTML",
+            reply_to_message_id=msg.message_id,
+        )
         return
 
-    tipo = context.args[0].lower()
-    cantidad = int(context.args[1])
-    usos = int(context.args[2])
+    tipo = context.args[0].strip().lower()
+    if tipo not in {"dias", "creditos"}:
+        await msg.reply_text("Tipo inválido. Usa: <code>dias</code> o <code>creditos</code>.", parse_mode="HTML")
+        return
+    cantidad, err = _parse_positive_int(context.args[1], "cantidad")
+    if err:
+        await msg.reply_text(f"❌ {html.escape(err)}", parse_mode="HTML")
+        return
+    usos, err = _parse_positive_int(context.args[2], "usos")
+    if err:
+        await msg.reply_text(f"❌ {html.escape(err)}", parse_mode="HTML")
+        return
+    total = 1
+    if len(context.args) >= 4:
+        total, err = _parse_positive_int(context.args[3], "total")
+        if err:
+            await msg.reply_text(f"❌ {html.escape(err)}", parse_mode="HTML")
+            return
 
-    if tipo not in ["dias", "creditos"]:
-        await update.message.reply_text("Tipo inválido. Usa: dias o creditos.")
+    status, data = _fetch_json(
+        f"{API_BASE}/keys/generate",
+        method="POST",
+        payload={
+            "tipo": tipo,
+            "cantidad": cantidad,
+            "usos": usos,
+            "total": total,
+            "creador_id": user.id,
+        },
+    )
+    if status != 200 or data.get("status") != "ok":
+        await msg.reply_text(
+            f"❌ No se pudo generar la key.\nCódigo: {_badge(status)}\n{html.escape(str(data.get('message', 'Error')))}",
+            parse_mode="HTML",
+            reply_to_message_id=msg.message_id,
+        )
         return
 
-    key = generar_key()
-
-    conn = connect_keys()
-    c = conn.cursor()
-    c.execute("INSERT INTO keys (key, tipo, cantidad, usos, creador_id) VALUES (?, ?, ?, ?, ?)",
-              (key, tipo, cantidad, usos, update.effective_user.id))
-    conn.commit()
-    conn.close()
-
-    await update.message.reply_text(f"✅ Key generada:\n`{key}`\n\nTipo: {tipo}\nCantidad: {cantidad}\nUsos: {usos}", parse_mode="Markdown")
-
-# -------------------- CANJEAR KEYS --------------------
-async def redeem(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 1:
-        await update.message.reply_text("Uso: /redeem <KEY>")
-        return
-
-    key_input = context.args[0].strip().upper()
-    user_id = update.effective_user.id
-
-    conn_keys = connect_keys()
-    c = conn_keys.cursor()
-    c.execute("SELECT key, tipo, cantidad, usos FROM keys WHERE key = ?", (key_input,))
-    row = c.fetchone()
-
-    if not row:
-        await update.message.reply_text("❌ Key inválida.")
-        conn_keys.close()
-        return
-
-    key, tipo, cantidad, usos = row
-    if usos <= 0:
-        await update.message.reply_text("❌ Esta key ya no tiene usos disponibles.")
-        conn_keys.close()
-        return
-
-    # Actualizar usuario en multiplataforma.db
-    conn_users = connect_users()
-    cu = conn_users.cursor()
-    cu.execute("SELECT id_tg, creditos, fecha_caducidad FROM usuarios WHERE id_tg = ?", (user_id,))
-    user = cu.fetchone()
-
-    if not user:
-        await update.message.reply_text("❌ No estás registrado. Usa /register primero.")
-        conn_users.close()
-        conn_keys.close()
-        return
-
-    if tipo == "creditos":
-        nuevo_valor = user[1] + cantidad
-        cu.execute("UPDATE usuarios SET creditos = ? WHERE id_tg = ?", (nuevo_valor, user_id))
-        mensaje = f"✅ Has canjeado {cantidad} créditos.\nAhora tienes {nuevo_valor} créditos."
-    
-    if tipo == "dias":
-        # Verificar si la fecha de caducidad es válida
-        fecha_caducidad = user[2]
-
-        if fecha_caducidad == '0' or not fecha_caducidad:  # Si la fecha es inválida o vacía
-            # Asignar una fecha de caducidad predeterminada si es inválida
-            fecha_caducidad_dt = datetime.now()  # Establecer la fecha de caducidad como la fecha actual
-        else:
-            try:
-                # Intentar convertir la fecha de caducidad en formato 'YYYY-MM-DD'
-                fecha_caducidad_dt = datetime.strptime(fecha_caducidad, '%Y-%m-%d')
-            except ValueError:
-                # Si la fecha no tiene el formato correcto, asignar la fecha actual
-                fecha_caducidad_dt = datetime.now()
-
-        # Sumar los días al valor actual
-        nueva_fecha_caducidad = fecha_caducidad_dt + timedelta(days=cantidad)
-
-        # Convertir de nuevo a formato string
-        nueva_fecha_caducidad_str = nueva_fecha_caducidad.strftime('%Y-%m-%d')
-
-        # Actualizar la fecha de caducidad en la base de datos
-        cu.execute("UPDATE usuarios SET fecha_caducidad = ? WHERE id_tg = ?", (nueva_fecha_caducidad_str, user_id))
-        mensaje = f"✅ Has canjeado {cantidad} días.\nAhora tu fecha de caducidad es {nueva_fecha_caducidad_str}."
-
-    conn_users.commit()
-    conn_users.close()
-
-    # Actualizar key (restar un uso)
-    c.execute("UPDATE keys SET usos = usos - 1 WHERE key = ?", (key,))
-    c.execute("INSERT INTO redemptions (key, user_id) VALUES (?, ?)", (key, user_id))
-    conn_keys.commit()
-    conn_keys.close()
-
-    await update.message.reply_text(mensaje)
-
-# -------------------- LOG DE CANJES --------------------
-async def keyslog(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ No tienes permisos para usar este comando.")
-        return
-
-    conn = connect_keys()
-    c = conn.cursor()
-    c.execute("""
-        SELECT r.key, r.user_id, r.fecha_canje, k.tipo, k.cantidad
-        FROM redemptions r
-        JOIN keys k ON r.key = k.key
-        ORDER BY r.fecha_canje DESC
-        LIMIT 15
-    """)
-    rows = c.fetchall()
-    conn.close()
-
-    if not rows:
-        await update.message.reply_text("📭 No hay canjes registrados aún.")
-        return
-
-    mensaje = "📜 Últimos canjes de keys:\n\n"
-    for key, user_id, fecha, tipo, cantidad in rows:
-        mensaje += f"🔑 {key}\n👤 User: `{user_id}`\n📅 {fecha}\n➕ {cantidad} {tipo}\n\n"
-
-    await update.message.reply_text(mensaje, parse_mode="Markdown")
-
-# -------------------- INFO DE UNA KEY --------------------
-async def keysinfo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("❌ No tienes permisos para usar este comando.")
-        return
-
-    if len(context.args) < 1:
-        await update.message.reply_text("Uso: /keysinfo <KEY>")
-        return
-
-    key_input = context.args[0].strip().upper()
-
-    conn = connect_keys()
-    c = conn.cursor()
-    c.execute("""
-        SELECT key, tipo, cantidad, usos, creador_id, fecha_creacion
-        FROM keys WHERE key = ?
-    """, (key_input,))
-    row = c.fetchone()
-    conn.close()
-
-    if not row:
-        await update.message.reply_text("❌ Key no encontrada.")
-        return
-
-    key, tipo, cantidad, usos, creador_id, fecha_creacion = row
-
-    mensaje = (
-        f"🔑 Información de la Key:\n\n"
-        f"🔹 Key: `{key}`\n"
-        f"📌 Tipo: {tipo}\n"
-        f"➕ Cantidad: {cantidad}\n"
-        f"♻️ Usos restantes: {usos}\n"
-        f"👤 Creada por: `{creador_id}`\n"
-        f"📅 Fecha creación: {fecha_creacion}"
+    keys = ((data.get("data") or {}).get("keys") or [])
+    key_lines = "\n".join(_badge(key) for key in keys[:30])
+    extra = "" if len(keys) <= 30 else f"\n... y {len(keys) - 30} más."
+    await msg.reply_text(
+        (
+            "✅ <b>Keys generadas</b>\n\n"
+            f"Tipo: {_badge(tipo)}\n"
+            f"Cantidad: {_badge(cantidad)}\n"
+            f"Usos por key: {_badge(usos)}\n"
+            f"Total: {_badge(len(keys))}\n\n"
+            f"{key_lines}{extra}"
+        ),
+        parse_mode="HTML",
+        reply_to_message_id=msg.message_id,
     )
 
-    await update.message.reply_text(mensaje, parse_mode="Markdown")
+
+async def redeem(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    user = update.effective_user
+    if not user:
+        return
+    if not _api_ready():
+        await msg.reply_text("❌ API_BASE no está configurada; no puedo canjear keys.")
+        return
+    if len(context.args) < 1:
+        await msg.reply_text("Uso: <code>/redeem KEY</code>", parse_mode="HTML", reply_to_message_id=msg.message_id)
+        return
+
+    key_input = context.args[0].strip().upper()
+    status, data = _fetch_json(
+        f"{API_BASE}/keys/redeem",
+        method="POST",
+        payload={"key": key_input, "ID_TG": user.id},
+    )
+    if status != 200 or data.get("status") != "ok":
+        await msg.reply_text(
+            f"❌ {html.escape(str(data.get('message', 'Key inválida')))}",
+            parse_mode="HTML",
+            reply_to_message_id=msg.message_id,
+        )
+        return
+
+    info = data.get("data") or {}
+    lines = [
+        f"Key: {_badge(info.get('key', key_input))}",
+        f"Tipo: {_badge(info.get('tipo', '—'))}",
+        f"Cantidad: {_badge(info.get('cantidad', '—'))}",
+        f"Usos restantes: {_badge(info.get('usos_restantes', '—'))}",
+    ]
+    if "CREDITOS" in info:
+        lines.append(f"Nuevo saldo: {_badge(info.get('CREDITOS'))}")
+    if "FECHA_DE_CADUCIDAD" in info:
+        lines.append(f"Vence: {_badge(info.get('FECHA_DE_CADUCIDAD'))}")
+    await msg.reply_text("✅ <b>Key canjeada</b>\n\n" + "\n".join(lines), parse_mode="HTML", reply_to_message_id=msg.message_id)
+
+
+async def keyslog(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    user = update.effective_user
+    if not user or not _is_admin(user.id):
+        await msg.reply_text("❌ No tienes permisos para usar este comando.")
+        return
+    if not _api_ready():
+        await msg.reply_text("❌ API_BASE no está configurada.")
+        return
+
+    status, data = _fetch_json(f"{API_BASE}/keys/log?limit=15")
+    if status != 200 or data.get("status") != "ok":
+        await msg.reply_text(f"❌ Error consultando canjes: {html.escape(str(data.get('message', status)))}", parse_mode="HTML")
+        return
+    rows = data.get("data") or []
+    if not rows:
+        await msg.reply_text("📭 No hay canjes registrados aún.")
+        return
+
+    parts = ["📜 <b>Últimos canjes de keys</b>\n"]
+    for row in rows:
+        parts.append(
+            f"🔑 {_badge(row.get('key'))}\n"
+            f"👤 User: {_badge(row.get('user_id'))}\n"
+            f"📅 {html.escape(str(row.get('fecha_canje') or '—'))}\n"
+            f"➕ {_badge(row.get('cantidad'))} {html.escape(str(row.get('tipo') or ''))}"
+        )
+    await msg.reply_text("\n\n".join(parts), parse_mode="HTML", reply_to_message_id=msg.message_id)
+
+
+async def keysinfo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.effective_message
+    user = update.effective_user
+    if not user or not _is_admin(user.id):
+        await msg.reply_text("❌ No tienes permisos para usar este comando.")
+        return
+    if not _api_ready():
+        await msg.reply_text("❌ API_BASE no está configurada.")
+        return
+    if len(context.args) < 1:
+        await msg.reply_text("Uso: <code>/keysinfo KEY</code>", parse_mode="HTML", reply_to_message_id=msg.message_id)
+        return
+
+    key_input = context.args[0].strip().upper()
+    status, data = _fetch_json(f"{API_BASE}/keys/info?key={_urlparse.quote(key_input)}")
+    if status != 200 or data.get("status") != "ok":
+        await msg.reply_text(f"❌ {html.escape(str(data.get('message', 'Key no encontrada')))}", parse_mode="HTML")
+        return
+    row = data.get("data") or {}
+    await msg.reply_text(
+        (
+            "🔑 <b>Información de la key</b>\n\n"
+            f"Key: {_badge(row.get('key'))}\n"
+            f"Tipo: {_badge(row.get('tipo'))}\n"
+            f"Cantidad: {_badge(row.get('cantidad'))}\n"
+            f"Usos restantes: {_badge(row.get('usos'))}\n"
+            f"Canjes: {_badge(row.get('canjes'))}\n"
+            f"Creada por: {_badge(row.get('creador_id'))}\n"
+            f"Fecha creación: {_badge(row.get('fecha_creacion'))}"
+        ),
+        parse_mode="HTML",
+        reply_to_message_id=msg.message_id,
+    )
