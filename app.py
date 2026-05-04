@@ -1158,6 +1158,45 @@ def get_admin_history(user_id: str = "", command: str = "", platform: str = "", 
     return rows
 
 
+def get_user_request_items(user_id: str, limit: int = 80):
+    user_id = (user_id or "").strip()
+    if not user_id:
+        return []
+    try:
+        conn = get_conn(REQUESTS_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, user_id, username, command, payload, status, cost, charged,
+                   delivery_count, created_at, resolved_at, resolved_by, resolution_note
+            FROM requests
+            WHERE CAST(user_id AS TEXT) = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        )
+        rows = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
+def get_user_profile_snapshot(user_id: str):
+    user_id = (user_id or "").strip()
+    if not user_id:
+        return {"user": None, "purchases": [], "history": [], "requests": []}
+    row = get_user_by_id(user_id)
+    return {
+        "user": dict(row) if row else None,
+        "purchases": get_admin_purchases(user_id=user_id, limit=80),
+        "history": get_admin_history(user_id=user_id, limit=80),
+        "requests": get_user_request_items(user_id, limit=80),
+    }
+
+
 def get_storage_snapshot():
     dbs = [
         ("usuarios", DB_PATH),
@@ -2398,7 +2437,7 @@ def admin_panel():
         return gate
     flash = request.args.get("flash", "")
     active_section = (request.args.get("section") or "resumen").strip().lower()
-    if active_section not in {"resumen", "categorias", "comandos", "buy", "usuarios", "compras", "historial", "vendedores", "ajustes", "solicitudes", "herramientas", "sistema", "estadisticas"}:
+    if active_section not in {"resumen", "categorias", "comandos", "buy", "usuarios", "usuario", "compras", "historial", "vendedores", "ajustes", "solicitudes", "herramientas", "sistema", "estadisticas"}:
         active_section = "resumen"
     categories = get_catalog_categories()
     commands = get_catalog_commands()
@@ -2408,6 +2447,8 @@ def admin_panel():
     user_status = (request.args.get("ustatus") or "").upper()
     user_plan = (request.args.get("uplan") or "").upper()
     admin_users = get_admin_users(q=user_q, status=user_status, plan=user_plan, limit=250)
+    profile_user_id = (request.args.get("uid") or request.args.get("user_id") or "").strip()
+    user_profile = get_user_profile_snapshot(profile_user_id) if profile_user_id else {"user": None, "purchases": [], "history": [], "requests": []}
     purchase_user = request.args.get("purchase_user", "")
     purchase_vendor = request.args.get("purchase_vendor", "")
     purchase_from = request.args.get("purchase_from", "")
@@ -2476,6 +2517,8 @@ def admin_panel():
         filtered_commands=paged_commands,
         buy_packages=buy_packages,
         admin_users=admin_users,
+        profile_user_id=profile_user_id,
+        user_profile=user_profile,
         vendor_summary=vendor_summary,
         vendor_detail=vendor_detail,
         vendor_total_sales=vendor_total_sales,

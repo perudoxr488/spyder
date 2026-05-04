@@ -177,6 +177,7 @@
                 <td>
                   <div><strong>{{ user.rol_tg or 'FREE' }}</strong></div>
                   <div class="small">WEB: {{ user.user_web or '—' }} | WSP: {{ user.number_wsp or '—' }}</div>
+                  <div class="small"><a href="{{ url_for('admin_panel', section='usuario', uid=user.id_tg) }}">Abrir perfil</a></div>
                 </td>
                 <td>
                   <div>Plan: {{ user.plan }}</div>
@@ -237,6 +238,85 @@
       </div>
       </div>
       {% endif %}
+      {% if active_section == 'usuario' %}
+      <div class="stack">
+        <div class="card">
+          <div class="toolbar">
+            <div>
+              <h2>Perfil de usuario</h2>
+              <p class="small">Vista completa de datos, compras, historial y solicitudes.</p>
+            </div>
+            <form method="get" action="{{ url_for('admin_panel') }}" class="inline" style="min-width:360px;">
+              <input type="hidden" name="section" value="usuario">
+              <input name="uid" value="{{ profile_user_id }}" placeholder="ID usuario">
+              <button type="submit">Abrir</button>
+            </form>
+          </div>
+          {% if user_profile.user %}
+          <div class="summary">
+            <div class="metric"><span class="pill">ID</span><h3>{{ user_profile.user.id_tg }}</h3><div class="small">Telegram</div></div>
+            <div class="metric"><span class="pill">Rol</span><h3>{{ user_profile.user.rol_tg or 'FREE' }}</h3><div class="small">TG</div></div>
+            <div class="metric"><span class="pill">Plan</span><h3>{{ user_profile.user.plan or 'FREE' }}</h3><div class="small">{{ user_profile.user.fecha_caducidad or 'Sin vencimiento' }}</div></div>
+            <div class="metric"><span class="pill">Créditos</span><h3>{{ user_profile.user.creditos or 0 }}</h3><div class="small">Antispam {{ user_profile.user.antispam or 0 }}s</div></div>
+          </div>
+          <div class="three" style="margin-top:14px;">
+            <div class="mini-card"><strong>Estado</strong><div>{{ user_profile.user.estado or '—' }}</div></div>
+            <div class="mini-card"><strong>Web</strong><div>{{ user_profile.user.user_web or '—' }}</div><div class="small">Registro: {{ user_profile.user.register_web }}</div></div>
+            <div class="mini-card"><strong>WSP</strong><div>{{ user_profile.user.number_wsp or '—' }}</div><div class="small">Registro: {{ user_profile.user.register_wsp }}</div></div>
+          </div>
+          {% else %}
+          <p>No se encontró usuario. Escribe un ID y abre el perfil.</p>
+          {% endif %}
+        </div>
+        {% if user_profile.user %}
+        <div class="section-grid">
+          <div class="card">
+            <div class="toolbar"><h2>Compras</h2><a href="{{ url_for('admin_panel', section='compras', purchase_user=profile_user_id) }}">Ver todas</a></div>
+            <table>
+              <thead><tr><th>ID</th><th>Compra</th><th>Vendedor</th><th>Fecha</th></tr></thead>
+              <tbody>
+                {% for row in user_profile.purchases %}
+                <tr><td>#{{ row.ID }}</td><td>{{ row.COMPRO or '—' }}</td><td>{{ row.VENDEDOR or '—' }}</td><td>{{ row.FECHA or '—' }}</td></tr>
+                {% endfor %}
+                {% if not user_profile.purchases %}<tr><td colspan="4">Sin compras.</td></tr>{% endif %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <div class="toolbar"><h2>Historial</h2><a href="{{ url_for('admin_panel', section='historial', history_user=profile_user_id) }}">Ver todo</a></div>
+            <table>
+              <thead><tr><th>ID</th><th>Comando</th><th>Valor</th><th>Fecha</th></tr></thead>
+              <tbody>
+                {% for row in user_profile.history %}
+                <tr><td>#{{ row.ID }}</td><td>/{{ row.consulta }}</td><td>{{ row.valor or '—' }}</td><td>{{ row.fecha or '—' }}</td></tr>
+                {% endfor %}
+                {% if not user_profile.history %}<tr><td colspan="4">Sin historial.</td></tr>{% endif %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Solicitudes</h2>
+          <table>
+            <thead><tr><th>ID</th><th>Comando</th><th>Estado</th><th>Costo</th><th>Pedido</th><th>Cierre</th></tr></thead>
+            <tbody>
+              {% for req in user_profile.requests %}
+              <tr>
+                <td>#{{ req.id }}</td>
+                <td>/{{ req.command }}</td>
+                <td><span class="badge {% if req.status == 'resolved' %}ok{% else %}off{% endif %}">{{ req.status }}</span></td>
+                <td>{{ req.cost }}</td>
+                <td>{{ req.payload or '—' }}</td>
+                <td>{{ req.resolved_at or '—' }}<div class="small">{{ req.resolution_note or '' }}</div></td>
+              </tr>
+              {% endfor %}
+              {% if not user_profile.requests %}<tr><td colspan="6">Sin solicitudes.</td></tr>{% endif %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
       {% if active_section == 'compras' %}
       <div class="stack">
         <div class="card">
@@ -274,7 +354,7 @@
               {% for row in purchases %}
               <tr>
                 <td>#{{ row.ID }}</td>
-                <td>{{ row.ID_TG }}</td>
+                <td><a href="{{ url_for('admin_panel', section='usuario', uid=row.ID_TG) }}">{{ row.ID_TG }}</a></td>
                 <td>{{ row.VENDEDOR or '—' }}</td>
                 <td><strong>{{ row.COMPRO or '—' }}</strong></td>
                 <td>{{ row.FECHA or '—' }}</td>
@@ -332,7 +412,7 @@
               {% for row in history_rows %}
               <tr>
                 <td>#{{ row.ID }}</td>
-                <td>{{ row.ID_TG }}</td>
+                <td><a href="{{ url_for('admin_panel', section='usuario', uid=row.ID_TG) }}">{{ row.ID_TG }}</a></td>
                 <td><strong>/{{ row.consulta }}</strong></td>
                 <td>{{ row.valor or '—' }}</td>
                 <td>{{ row.plataforma or '—' }}</td>
