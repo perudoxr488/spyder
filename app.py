@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, redirect, render_template, session, url_for, Response
+from flask import Flask, jsonify, request, redirect, render_template, session, url_for, Response, send_file
 import sqlite3
 from datetime import datetime, timedelta
 import secrets
@@ -61,6 +61,7 @@ PANEL_LOGIN_ATTEMPTS = {}
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = PANEL_PUBLIC
+_BACKUP_CHECK_TS = 0.0
 
 
 def _is_loopback_request() -> bool:
@@ -85,6 +86,20 @@ def require_internal_access():
         return None
 
     return jsonify({"status": "error", "message": "Acceso no autorizado"}), 403
+
+
+@app.before_request
+def maybe_create_daily_backup():
+    global _BACKUP_CHECK_TS
+    now_ts = time.time()
+    if now_ts - _BACKUP_CHECK_TS < 3600:
+        return None
+    _BACKUP_CHECK_TS = now_ts
+    try:
+        ensure_daily_backup(force=False)
+    except Exception:
+        pass
+    return None
 
 
 def request_value(name: str, default=None):
@@ -1471,6 +1486,74 @@ def get_storage_snapshot():
     }
 
 
+def backups_dir() -> str:
+    path = os.path.join(get_data_dir(), "backups")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def get_daily_backups(limit: int = 20):
+    try:
+        folder = backups_dir()
+        items = []
+        for name in os.listdir(folder):
+            if not (name.startswith("spidersyn-auto-") and name.endswith(".zip")):
+                continue
+            path = os.path.join(folder, name)
+            if not os.path.isfile(path):
+                continue
+            items.append(
+                {
+                    "name": name,
+                    "path": path,
+                    "size": os.path.getsize(path),
+                    "created_at": datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec="seconds"),
+                }
+            )
+        items.sort(key=lambda row: row["name"], reverse=True)
+        return items[:limit]
+    except Exception:
+        return []
+
+
+def create_db_backup_file(path: str):
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for item in get_storage_snapshot()["items"]:
+            if item["exists"]:
+                zf.write(item["path"], arcname=os.path.basename(item["path"]))
+
+
+def ensure_daily_backup(force: bool = False):
+    folder = backups_dir()
+    today = now_utc().strftime("%Y%m%d")
+    backup_name = f"spidersyn-auto-{today}.zip"
+    backup_path = os.path.join(folder, backup_name)
+    if force or not os.path.exists(backup_path):
+        tmp_path = backup_path + ".tmp"
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            create_db_backup_file(tmp_path)
+            if force and os.path.exists(backup_path):
+                os.remove(backup_path)
+            os.replace(tmp_path, backup_path)
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+        log_audit_event("backup.auto", backup_name, f"size={os.path.getsize(backup_path)}")
+
+    backups = get_daily_backups(limit=100)
+    for old in backups[7:]:
+        try:
+            os.remove(old["path"])
+        except Exception:
+            pass
+    return backup_path
+
+
 def get_history_cleanup_preview():
     preview = []
     now = now_utc()
@@ -2840,6 +2923,7 @@ def admin_panel():
         global_q=global_q,
         global_results=global_results,
         storage=get_storage_snapshot(),
+        daily_backups=get_daily_backups(limit=10),
         history_cleanup_preview=get_history_cleanup_preview(),
         error_logs=get_error_logs(limit=50),
         audit_logs=get_audit_logs(limit=80),
@@ -3398,6 +3482,33 @@ def admin_db_backup_zip():
     return build_db_backup_response()
 
 
+@app.route("/admin/backup/daily/create", methods=["POST"])
+def admin_create_daily_backup():
+    gate = require_panel_owner()
+    if gate:
+        return gate
+    try:
+        path = ensure_daily_backup(force=True)
+        flash = f"Backup diario creado: {os.path.basename(path)}"
+    except Exception as exc:
+        flash = f"No se pudo crear backup diario: {exc}"
+    return redirect(url_for("admin_panel", section="sistema", flash=flash))
+
+
+@app.route("/admin/backup/daily/<path:filename>", methods=["GET"])
+def admin_download_daily_backup(filename: str):
+    gate = require_panel_login()
+    if gate:
+        return gate
+    safe_name = os.path.basename(filename)
+    if safe_name != filename or not (safe_name.startswith("spidersyn-auto-") and safe_name.endswith(".zip")):
+        return jsonify({"status": "error", "message": "Archivo inválido"}), 400
+    path = os.path.join(backups_dir(), safe_name)
+    if not os.path.exists(path):
+        return jsonify({"status": "error", "message": "Backup no encontrado"}), 404
+    return send_file(path, mimetype="application/zip", as_attachment=True, download_name=safe_name)
+
+
 @app.route("/admin/maintenance/cleanup-history", methods=["POST"])
 def admin_cleanup_history():
     gate = require_panel_login()
@@ -3459,10 +3570,16 @@ def admin_update_panel_password():
 
 def build_db_backup_response():
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for item in get_storage_snapshot()["items"]:
-            if item["exists"]:
-                zf.write(item["path"], arcname=os.path.basename(item["path"]))
+    temp_path = os.path.join(get_data_dir(), f"spidersyn-manual-{now_utc().strftime('%Y%m%d%H%M%S')}.zip.tmp")
+    try:
+        create_db_backup_file(temp_path)
+        with open(temp_path, "rb") as f:
+            buffer.write(f.read())
+    finally:
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
     buffer.seek(0)
     return Response(
         buffer.getvalue(),

@@ -1153,6 +1153,29 @@
             </div>
           </div>
           <div class="card">
+            <h2>Backups automáticos</h2>
+            <p class="small">Se crea un backup diario cuando el servicio recibe tráfico. Se conservan los últimos 7.</p>
+            <form method="post" action="{{ url_for('admin_create_daily_backup') }}" style="margin-bottom:14px;">
+              <button type="submit">Crear backup ahora</button>
+            </form>
+            <table>
+              <thead><tr><th>Archivo</th><th>Tamaño</th><th>Fecha</th><th>Descargar</th></tr></thead>
+              <tbody>
+                {% for backup in daily_backups %}
+                <tr>
+                  <td><strong>{{ backup.name }}</strong></td>
+                  <td>{{ backup.size }} bytes</td>
+                  <td>{{ backup.created_at }}</td>
+                  <td><a href="{{ url_for('admin_download_daily_backup', filename=backup.name) }}">ZIP</a></td>
+                </tr>
+                {% endfor %}
+                {% if not daily_backups %}
+                <tr><td colspan="4">Aún no hay backups automáticos.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
             <h2>Clave del panel</h2>
             <p class="small">La nueva clave queda guardada como hash en la DB persistente.</p>
             <form method="post" action="{{ url_for('admin_update_panel_password') }}">
