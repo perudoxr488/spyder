@@ -89,16 +89,42 @@ def _parse_command_meta(command_cfg: dict) -> dict:
     }
 
 
-def _validate_args(command_slug: str, command_cfg: dict, args: list[str]) -> str | None:
+def _message_media_source(msg):
+    if not msg:
+        return None
+    candidates = [msg, getattr(msg, "reply_to_message", None)]
+    for item in candidates:
+        if not item:
+            continue
+        if getattr(item, "photo", None):
+            return item
+        if getattr(item, "document", None):
+            return item
+    return None
+
+
+def _validate_args(command_slug: str, command_cfg: dict, args: list[str], msg=None) -> str | None:
     meta = _parse_command_meta(command_cfg)
     validation = meta.get("validation") or {}
     text = " ".join(args).strip()
     usage_hint = (command_cfg.get("usage_hint") or f"/{command_slug} <datos>").strip()
     empty_message = validation.get("empty_message") or f"Por favor, proporciona los datos después de /{command_slug}."
     invalid_message = validation.get("invalid_message") or f"Por favor, usa el formato válido: {usage_hint}"
+    kind = (validation.get("type") or "none").strip().lower()
+    if kind in {"photo", "media", "photo_text", "media_text"}:
+        if not _message_media_source(msg):
+            return validation.get("empty_message") or (
+                f"Envía una foto junto con /{command_slug} o responde a una foto con /{command_slug}."
+            )
+        if kind in {"photo", "media"}:
+            return None
+        if not text:
+            return validation.get("empty_message") or (
+                f"Envía la foto y agrega los datos después de /{command_slug}."
+            )
+        kind = "none"
     if not text:
         return empty_message
-    kind = (validation.get("type") or "none").strip().lower()
     if kind in {"", "none"}:
         return None
     if kind in {"digits", "number"} and not text.isdigit():
@@ -170,7 +196,7 @@ async def manual_catalog_command(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     args = list(getattr(context, "args", None) or _extract_args(getattr(msg, "text", "") or getattr(msg, "caption", "")))
-    validation_error = _validate_args(command_slug, command_cfg, args)
+    validation_error = _validate_args(command_slug, command_cfg, args, msg)
     if validation_error and not args:
         usage_hint = (command_cfg.get("usage_hint") or f"/{command_slug} <datos>").strip()
         description = (command_cfg.get("name") or command_slug.upper()).strip()

@@ -723,7 +723,7 @@ def _pack_command_description(info: str | None, validation: dict | None):
 
 def _command_validation_from_form():
     validation_type = (request.form.get("validation_type") or "none").strip().lower()
-    allowed_types = {"none", "digits", "number", "letters", "dni", "regex"}
+    allowed_types = {"none", "digits", "number", "letters", "dni", "regex", "photo", "photo_text", "media", "media_text"}
     if validation_type not in allowed_types:
         validation_type = "none"
     validation = {"type": validation_type}

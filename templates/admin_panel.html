@@ -1002,6 +1002,8 @@
                 <option value="digits">Solo números</option>
                 <option value="letters">Solo letras</option>
                 <option value="regex">Regex personalizada</option>
+                <option value="photo">Foto/archivo requerido</option>
+                <option value="photo_text">Foto/archivo + texto</option>
               </select>
               <input name="validation_length" placeholder="Longitud exacta, ej. 8">
             </div>
@@ -1141,6 +1143,8 @@
                         <option value="digits" {% if cmd.validation_type in ['digits', 'number'] %}selected{% endif %}>Solo números</option>
                         <option value="letters" {% if cmd.validation_type == 'letters' %}selected{% endif %}>Solo letras</option>
                         <option value="regex" {% if cmd.validation_type == 'regex' %}selected{% endif %}>Regex personalizada</option>
+                        <option value="photo" {% if cmd.validation_type in ['photo', 'media'] %}selected{% endif %}>Foto/archivo requerido</option>
+                        <option value="photo_text" {% if cmd.validation_type in ['photo_text', 'media_text'] %}selected{% endif %}>Foto/archivo + texto</option>
                       </select>
                       <input name="validation_length" value="{{ cmd.validation_length or '' }}" placeholder="Longitud exacta">
                     </div>

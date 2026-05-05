@@ -426,6 +426,7 @@ def main():
     for dynamic_slug in _fetch_dynamic_command_slugs():
         add_command_handler(application, dynamic_slug, manual_catalog_command, use_antispam=True, skip_empty_args_antispam=True)
     application.add_handler(MessageHandler(filters.COMMAND, manual_catalog_command))
+    application.add_handler(MessageHandler(filters.CaptionRegex(r"^/"), manual_catalog_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_requests.admin_followup_message))
     application.add_handler(MessageHandler(filters.ALL, admin_requests.forward_file))
 

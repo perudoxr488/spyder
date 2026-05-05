@@ -301,6 +301,17 @@ def _trim(text: str | None, limit: int = 90) -> str:
     return value[: limit - 1] + "…"
 
 
+def _request_media_source(message):
+    if not message:
+        return None
+    for item in (message, getattr(message, "reply_to_message", None)):
+        if not item:
+            continue
+        if getattr(item, "photo", None) or getattr(item, "document", None):
+            return item
+    return None
+
+
 def get_quick_templates():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -738,12 +749,15 @@ async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     cfg = get_command_runtime_config(command, cost)
     cost = int(cfg.get("cost", cost))
 
+    media_source = _request_media_source(message)
     if message.text:
         payload = message.text
     elif message.caption:
         payload = message.caption
     else:
         payload = "📎 Archivo adjunto"
+    if media_source and "📎" not in payload:
+        payload = f"{payload}\n📎 Foto/archivo adjunto"
 
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -787,6 +801,22 @@ async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, com
         ),
         reply_markup=_build_request_keyboard(request_id, "pending"),
     )
+    if media_source:
+        try:
+            await context.bot.copy_message(
+                chat_id=admin_chat_id,
+                from_chat_id=media_source.chat_id,
+                message_id=media_source.message_id,
+            )
+        except Exception:
+            try:
+                await context.bot.forward_message(
+                    chat_id=admin_chat_id,
+                    from_chat_id=media_source.chat_id,
+                    message_id=media_source.message_id,
+                )
+            except Exception:
+                pass
 
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
