@@ -1140,6 +1140,17 @@ def get_key_redemptions(limit: int = 80):
         return []
 
 
+def update_key_uses(key: str, usos: int) -> bool:
+    init_keys_db()
+    conn = get_conn(KEYS_DB_PATH)
+    cur = conn.cursor()
+    cur.execute("UPDATE keys SET usos = ? WHERE key = ?", (usos, key))
+    changed = cur.rowcount > 0
+    conn.commit()
+    conn.close()
+    return changed
+
+
 def filter_request_items(items: list[dict], q: str = "", status: str = "", command: str = ""):
     q = (q or "").strip().lower()
     status = (status or "").strip().lower()
@@ -3683,6 +3694,30 @@ def admin_generate_keys():
     return redirect(url_for("admin_panel", section="keys", flash=f"Keys generadas: {preview}"))
 
 
+@app.route("/admin/keys/update", methods=["POST"])
+def admin_update_key():
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
+    if gate:
+        return gate
+    key = (request.form.get("key") or "").strip().upper()
+    action = (request.form.get("action") or "").strip().lower()
+    try:
+        usos = max(0, int(request.form.get("usos") or 0))
+    except Exception:
+        return redirect(url_for("admin_panel", section="keys", flash="Usos inválidos."))
+    if not key:
+        return redirect(url_for("admin_panel", section="keys", flash="Key inválida."))
+    if action == "revoke":
+        usos = 0
+    elif action != "set_uses":
+        return redirect(url_for("admin_panel", section="keys", flash="Acción inválida."))
+    if not update_key_uses(key, usos):
+        return redirect(url_for("admin_panel", section="keys", flash=f"Key {key} no encontrada."))
+    log_audit_event("keys.update", key, f"action={action}; usos={usos}")
+    msg = f"Key {key} revocada." if action == "revoke" else f"Key {key} actualizada a {usos} usos."
+    return redirect(url_for("admin_panel", section="keys", flash=msg))
+
+
 @app.route("/admin/user/save", methods=["POST"])
 def admin_save_user():
     gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR", "SOPORTE")
@@ -3929,6 +3964,42 @@ def admin_export_history_json():
     return _json_download_response(
         "spidersyn-historial.json",
         {"exported_at": now_iso(), "filters": filters, "total": len(rows), "data": rows},
+    )
+
+
+@app.route("/admin/export/keys.csv", methods=["GET"])
+def admin_export_keys_csv():
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
+    if gate:
+        return gate
+    rows = get_key_items(
+        q=request.args.get("key_q", ""),
+        tipo=request.args.get("key_tipo", ""),
+        status=request.args.get("key_status", ""),
+        limit=10000,
+    )
+    return _csv_response(
+        "spidersyn-keys.csv",
+        rows,
+        ["key", "tipo", "cantidad", "usos", "canjes", "creador_id", "fecha_creacion"],
+    )
+
+
+@app.route("/admin/export/keys.json", methods=["GET"])
+def admin_export_keys_json():
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
+    if gate:
+        return gate
+    filters = {
+        "q": request.args.get("key_q", ""),
+        "tipo": request.args.get("key_tipo", ""),
+        "status": request.args.get("key_status", ""),
+    }
+    rows = get_key_items(q=filters["q"], tipo=filters["tipo"], status=filters["status"], limit=10000)
+    redemptions = get_key_redemptions(limit=10000)
+    return _json_download_response(
+        "spidersyn-keys.json",
+        {"exported_at": now_iso(), "filters": filters, "total": len(rows), "data": rows, "redemptions": redemptions},
     )
 
 

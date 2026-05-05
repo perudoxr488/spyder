@@ -780,11 +780,15 @@
           <div class="metric"><span class="pill">Agotadas</span><h3>{{ key_counts.used }}</h3><div class="small">Sin usos</div></div>
           <div class="metric"><span class="pill">Canjes</span><h3>{{ key_counts.redemptions }}</h3><div class="small">Últimos visibles</div></div>
         </div>
+        <div class="subnav">
+          <a href="{{ url_for('admin_export_keys_csv', key_q=key_q, key_tipo=key_tipo, key_status=key_status) }}">Exportar CSV</a>
+          <a href="{{ url_for('admin_export_keys_json', key_q=key_q, key_tipo=key_tipo, key_status=key_status) }}">Exportar JSON</a>
+        </div>
       </div>
       <div class="card">
         <h2>Listado de keys</h2>
         <table>
-          <thead><tr><th>Key</th><th>Tipo</th><th>Cantidad</th><th>Usos</th><th>Canjes</th><th>Creador</th><th>Fecha</th></tr></thead>
+          <thead><tr><th>Key</th><th>Tipo</th><th>Cantidad</th><th>Usos</th><th>Canjes</th><th>Creador</th><th>Fecha</th><th>Acciones</th></tr></thead>
           <tbody>
             {% for item in key_items %}
             <tr>
@@ -795,10 +799,18 @@
               <td>{{ item.canjes }}</td>
               <td>{{ item.creador_id }}</td>
               <td>{{ item.fecha_creacion or '—' }}</td>
+              <td>
+                <form method="post" action="{{ url_for('admin_update_key') }}" style="display:grid; gap:6px; min-width:160px;">
+                  <input type="hidden" name="key" value="{{ item.key }}">
+                  <input type="number" name="usos" min="0" value="{{ item.usos }}">
+                  <button type="submit" name="action" value="set_uses">Guardar usos</button>
+                  <button type="submit" name="action" value="revoke" class="danger">Revocar</button>
+                </form>
+              </td>
             </tr>
             {% endfor %}
             {% if not key_items %}
-            <tr><td colspan="7">Sin keys para este filtro.</td></tr>
+            <tr><td colspan="8">Sin keys para este filtro.</td></tr>
             {% endif %}
           </tbody>
         </table>
