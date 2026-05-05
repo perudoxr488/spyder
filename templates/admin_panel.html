@@ -653,7 +653,7 @@
           <div class="pill">{{ pending_requests|length }} pendientes</div>
         </div>
         <table>
-          <thead><tr><th>ID</th><th>Usuario</th><th>Comando</th><th>Costo</th><th>Estado</th><th>Referencia admin</th></tr></thead>
+          <thead><tr><th>ID</th><th>Usuario</th><th>Comando</th><th>Costo</th><th>Estado</th><th>Referencia admin</th><th>Acción</th></tr></thead>
           <tbody>
             {% if filtered_pending_requests %}
               {% for req in filtered_pending_requests %}
@@ -667,10 +667,24 @@
                 <td>{{ req.cost }}</td>
                 <td><span class="badge {% if req.status == 'pending' %}off{% else %}ok{% endif %}">{{ req.status }}</span><div class="small">{{ req.created_at or '—' }}</div></td>
                 <td>{{ req.admin_msg_id or '—' }}</td>
+                <td>
+                  <form method="post" action="{{ url_for('admin_request_action') }}" class="stack">
+                    <input type="hidden" name="request_id" value="{{ req.id }}">
+                    <input type="hidden" name="rq" value="{{ request_q }}">
+                    <input type="hidden" name="rstatus" value="{{ request_status }}">
+                    <input type="hidden" name="rcommand" value="{{ request_command }}">
+                    <input name="note" placeholder="Nota interna">
+                    <div class="inline">
+                      <button type="submit" name="action" value="resolve">Resolver</button>
+                      <button type="submit" name="action" value="close">Cerrar</button>
+                      <button type="submit" name="action" value="fail">Fallida</button>
+                    </div>
+                  </form>
+                </td>
               </tr>
               {% endfor %}
             {% else %}
-              <tr><td colspan="6">No hay solicitudes pendientes.</td></tr>
+              <tr><td colspan="7">No hay solicitudes pendientes.</td></tr>
             {% endif %}
           </tbody>
         </table>
@@ -684,7 +698,7 @@
           <div class="pill">{{ recent_requests|length }} registros</div>
         </div>
         <table>
-          <thead><tr><th>ID</th><th>Usuario</th><th>Comando</th><th>Estado</th><th>Nota</th><th>Cierre</th></tr></thead>
+          <thead><tr><th>ID</th><th>Usuario</th><th>Comando</th><th>Estado</th><th>Nota</th><th>Cierre</th><th>Acción</th></tr></thead>
           <tbody>
             {% if filtered_recent_requests %}
               {% for req in filtered_recent_requests %}
@@ -698,10 +712,19 @@
                 <td><span class="badge {% if req.status == 'resolved' %}ok{% elif req.status == 'pending' %}off{% else %}pill{% endif %}">{{ req.status }}</span></td>
                 <td>{{ req.resolution_note or '—' }}</td>
                 <td>{{ req.resolved_at or '—' }}<div class="small">Admin: {{ req.resolved_by or '—' }}</div></td>
+                <td>
+                  <form method="post" action="{{ url_for('admin_request_action') }}">
+                    <input type="hidden" name="request_id" value="{{ req.id }}">
+                    <input type="hidden" name="rq" value="{{ request_q }}">
+                    <input type="hidden" name="rstatus" value="{{ request_status }}">
+                    <input type="hidden" name="rcommand" value="{{ request_command }}">
+                    <button type="submit" name="action" value="reopen">Reabrir</button>
+                  </form>
+                </td>
               </tr>
               {% endfor %}
             {% else %}
-              <tr><td colspan="6">No hay historial todavía.</td></tr>
+              <tr><td colspan="7">No hay historial todavía.</td></tr>
             {% endif %}
           </tbody>
         </table>

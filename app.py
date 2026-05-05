@@ -1178,6 +1178,50 @@ def filter_request_items(items: list[dict], q: str = "", status: str = "", comma
     return out
 
 
+REQUEST_PANEL_ACTIONS = {
+    "resolve": ("resolved", "Solicitud resuelta desde panel."),
+    "close": ("cancelled", "Solicitud cerrada desde panel."),
+    "fail": ("failed", "Solicitud marcada fallida desde panel."),
+    "reopen": ("pending", "Solicitud reabierta desde panel."),
+}
+
+
+def update_request_status_from_panel(request_id: int, action: str, note: str = "") -> tuple[bool, str]:
+    action = (action or "").strip().lower()
+    if action not in REQUEST_PANEL_ACTIONS:
+        return False, "Acción inválida."
+    new_status, default_note = REQUEST_PANEL_ACTIONS[action]
+    note = (note or "").strip() or default_note
+    try:
+        init_requests_db()
+        conn = get_conn(REQUESTS_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT id, status FROM requests WHERE id = ?", (request_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return False, f"Solicitud #{request_id} no encontrada."
+        resolved_at = None if new_status == "pending" else now_iso()
+        resolved_by = "" if new_status == "pending" else (session.get("panel_user") or PANEL_USER)
+        if new_status == "pending":
+            note = ""
+        cur.execute(
+            """
+            UPDATE requests
+            SET status = ?, resolved_at = ?, resolved_by = ?, resolution_note = ?
+            WHERE id = ?
+            """,
+            (new_status, resolved_at, resolved_by, note, request_id),
+        )
+        conn.commit()
+        conn.close()
+        log_audit_event("request.action", str(request_id), f"{action} => {new_status}; note={note}")
+        return True, f"Solicitud #{request_id} actualizada a {new_status}."
+    except Exception as exc:
+        log_error_event(exc)
+        return False, f"No se pudo actualizar la solicitud #{request_id}."
+
+
 def get_admin_users(q: str = "", status: str = "", plan: str = "", limit: int = 200):
     q = (q or "").strip().lower()
     status = (status or "").strip().upper()
@@ -3702,6 +3746,35 @@ def admin_save_request_template():
     conn.close()
     log_audit_event("request_template.save", key, f"billable={billable}")
     return redirect(url_for("admin_panel", section="solicitudes", flash=f"Plantilla {key} guardada."))
+
+
+@app.route("/admin/request/action", methods=["POST"])
+def admin_request_action():
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR", "SOPORTE")
+    if gate:
+        return gate
+    try:
+        request_id = int(request.form.get("request_id") or 0)
+    except Exception:
+        request_id = 0
+    action = (request.form.get("action") or "").strip().lower()
+    note = (request.form.get("note") or "").strip()
+    if request_id <= 0:
+        flash = "Solicitud inválida."
+    else:
+        ok, flash = update_request_status_from_panel(request_id, action, note)
+        if not ok:
+            flash = flash or "No se pudo actualizar la solicitud."
+    return redirect(
+        url_for(
+            "admin_panel",
+            section="solicitudes",
+            rq=request.form.get("rq", ""),
+            rstatus=request.form.get("rstatus", ""),
+            rcommand=request.form.get("rcommand", ""),
+            flash=flash,
+        )
+    )
 
 
 @app.route("/admin/keys/generate", methods=["POST"])
