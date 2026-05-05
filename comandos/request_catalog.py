@@ -27,6 +27,17 @@ NOCRED_FT = (ERRS.get("NOCREDITSFT") or "").strip() or None
 PLATE_RE = re.compile(r"^[A-Za-z0-9]{1,3}[-]?[A-Za-z0-9]{1,4}[-]?[A-Za-z0-9]{0,3}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+VALIDATION_MESSAGES = {
+    "missing": "Por favor, proporciona los datos después de /{command}.",
+    "dni": "Por favor, introduce un número de DNI válido (8 dígitos).",
+    "ruc": "Por favor, introduce un RUC válido (11 dígitos).",
+    "phone": "Por favor, introduce un número válido.",
+    "digits": "Por favor, introduce solo números.",
+    "email": "Por favor, introduce un correo válido.",
+    "plate": "Por favor, introduce una placa válida. Ejemplo: ABC123 o ABC-123.",
+    "name": "Por favor, usa el formato correcto: /{command} nombre|paterno|materno",
+}
+
 LOADER_ALIASES = {
     "vehiculos": "SUNARP",
     "telefonia": "OSIPTEL",
@@ -116,24 +127,28 @@ def _first_arg(context: ContextTypes.DEFAULT_TYPE) -> str:
     return str((getattr(context, "args", None) or [""])[0]).strip()
 
 
+def _validation_message(key: str, command: str) -> str:
+    return (VALIDATION_MESSAGES.get(key) or VALIDATION_MESSAGES["missing"]).format(command=command)
+
+
 def _validate_input(command: str, context: ContextTypes.DEFAULT_TYPE, validation: str) -> str | None:
     value = _first_arg(context)
     if not value:
-        return f"Por favor, proporciona los datos después de /{command}."
+        return _validation_message("missing", command)
     if validation == "dni" and not (value.isdigit() and len(value) == 8):
-        return "Por favor, introduce un número de DNI válido (8 dígitos)."
+        return _validation_message("dni", command)
     if validation == "ruc" and not (value.isdigit() and len(value) == 11):
-        return "Por favor, introduce un RUC válido (11 dígitos)."
+        return _validation_message("ruc", command)
     if validation == "phone" and not (value.isdigit() and 6 <= len(value) <= 15):
-        return "Por favor, introduce un número válido."
+        return _validation_message("phone", command)
     if validation == "digits" and not value.isdigit():
-        return "Por favor, introduce solo números."
+        return _validation_message("digits", command)
     if validation == "email" and not EMAIL_RE.fullmatch(value):
-        return "Por favor, introduce un correo válido."
+        return _validation_message("email", command)
     if validation == "plate" and not PLATE_RE.fullmatch(value):
-        return "Por favor, introduce una placa válida. Ejemplo: ABC123 o ABC-123."
+        return _validation_message("plate", command)
     if validation == "name" and len(" ".join(getattr(context, "args", []) or []).strip()) < 3:
-        return f"Por favor, usa el formato correcto: /{command} nombre|paterno|materno"
+        return _validation_message("name", command)
     return None
 
 

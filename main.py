@@ -179,6 +179,16 @@ def add_command_handler(application, command_name: str, handler_coro, use_antisp
     application.add_handler(CommandHandler(command_name, wrapped))
 
 
+def register_request_commands(application):
+    for command_name, default_cost, category_slug, validation in REQUEST_COMMANDS:
+        add_command_handler(
+            application,
+            command_name,
+            make_request_command(command_name, default_cost, category_slug, validation),
+            use_antispam=True,
+        )
+
+
 def _fetch_dynamic_command_slugs() -> list[str]:
     st, js = _fetch_json(f"{API_DB_BASE}/bot_catalog", timeout=15)
     if st != 200 or (js or {}).get("status") != "ok":
@@ -250,13 +260,7 @@ def main():
     
     # Consultas manuales del catálogo. Todas comparten validación, créditos,
     # loader y creación de solicitud al admin.
-    for command_name, default_cost, category_slug, validation in REQUEST_COMMANDS:
-        add_command_handler(
-            application,
-            command_name,
-            make_request_command(command_name, default_cost, category_slug, validation),
-            use_antispam=True,
-        )
+    register_request_commands(application)
     
     # -------------------- GENERAR Y CANJEAR KEYS --------------------
     add_command_handler(application, "genkey", genkey)

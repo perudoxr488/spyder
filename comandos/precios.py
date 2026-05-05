@@ -6,7 +6,7 @@ from urllib.error import HTTPError, URLError
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from comandos.precios_config import PRECIOS_COMANDOS
+from comandos.request_catalog import REQUEST_COMMANDS
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE_PATH = os.path.join(BASE_DIR, "config.json")
@@ -85,7 +85,7 @@ async def precios_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if not PRECIOS_COMANDOS:
+    if not REQUEST_COMMANDS:
         await msg.reply_text(
             "⚠️ No hay precios configurados.",
             reply_to_message_id=msg.message_id
@@ -95,7 +95,7 @@ async def precios_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = []
     texto.append("💳 <b>PRECIOS DEL BOT</b>\n")
 
-    for comando, precio in sorted(PRECIOS_COMANDOS.items()):
+    for comando, precio, *_ in sorted(REQUEST_COMMANDS):
         texto.append(f"• <b>{html.escape(comando.upper())}</b> → <code>{precio}</code> créditos")
 
     await msg.reply_text(
