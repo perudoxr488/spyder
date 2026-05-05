@@ -4226,6 +4226,55 @@ def internal_db_backup_zip():
     return build_db_backup_response()
 
 
+@app.route("/internal/broadcast/users", methods=["GET"])
+def internal_broadcast_users():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
+    scope = (request.args.get("scope") or "active").strip().lower()
+    if scope not in {"active", "all"}:
+        return jsonify({"status": "error", "message": "scope inválido"}), 400
+    init_main_db()
+    conn = get_conn(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    if scope == "all":
+        cur.execute(
+            """
+            SELECT id_tg, estado, rol_tg, plan
+            FROM usuarios
+            WHERE id_tg IS NOT NULL AND TRIM(id_tg) != ''
+            ORDER BY id_tg
+            """
+        )
+    else:
+        cur.execute(
+            """
+            SELECT id_tg, estado, rol_tg, plan
+            FROM usuarios
+            WHERE id_tg IS NOT NULL
+              AND TRIM(id_tg) != ''
+              AND UPPER(COALESCE(estado, 'ACTIVO')) != 'BANEADO'
+            ORDER BY id_tg
+            """
+        )
+    users = []
+    for row in cur.fetchall():
+        id_tg = str(row["id_tg"] or "").strip()
+        if not id_tg.isdigit():
+            continue
+        users.append(
+            {
+                "id_tg": id_tg,
+                "estado": row["estado"] or "",
+                "rol_tg": row["rol_tg"] or "",
+                "plan": row["plan"] or "",
+            }
+        )
+    conn.close()
+    return jsonify({"status": "ok", "scope": scope, "total": len(users), "users": users}), 200
+
+
 @app.route("/internal/request/upsert", methods=["POST"])
 def internal_request_upsert():
     auth_error = require_internal_access()

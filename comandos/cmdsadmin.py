@@ -160,6 +160,7 @@ def _build_admin_menu() -> str:
         "Días: <code>/setsub</code> <code>/sub</code> <code>/unsub</code>",
         "Rol: <code>/setrol ID|ROL</code>",
         "Anti-spam: <code>/setantispam ID|SEGUNDOS</code>",
+        "Global: <code>/global mensaje</code> o responde un mensaje con <code>/global</code>",
         "",
     ]
     for category, commands in grouped.items():
