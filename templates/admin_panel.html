@@ -994,9 +994,27 @@
             </div>
             <label>INFO visible en /cmds</label>
             <textarea name="description" placeholder="Texto que saldrá en INFO dentro del menú"></textarea>
+            <label>Validación de entrada</label>
+            <div class="inline">
+              <select name="validation_type">
+                <option value="none">Sin validación</option>
+                <option value="dni">DNI: 8 dígitos</option>
+                <option value="digits">Solo números</option>
+                <option value="letters">Solo letras</option>
+                <option value="regex">Regex personalizada</option>
+              </select>
+              <input name="validation_length" placeholder="Longitud exacta, ej. 8">
+            </div>
+            <div class="inline">
+              <input name="validation_min_length" placeholder="Mínimo caracteres">
+              <input name="validation_max_length" placeholder="Máximo caracteres">
+            </div>
+            <input name="validation_regex" placeholder="Regex opcional, ej. \\d{8}">
+            <input name="validation_empty_message" placeholder="Mensaje si lo manda vacío">
+            <input name="validation_invalid_message" placeholder="Mensaje si el formato está mal">
             <button class="secondary" type="submit">Guardar comando</button>
             </form>
-            <p class="small">Si creas un comando aquí pero no existe su handler en Python, solo quedará catalogado; no ejecutará una lógica nueva por sí solo.</p>
+            <p class="small">Los comandos creados aquí usan solicitud manual del bot. La validación evita cobrar o abrir solicitud cuando faltan datos o tienen mal formato.</p>
           </div>
           <div class="card">
             <h2>Importación Masiva</h2>
@@ -1115,6 +1133,24 @@
                     </div>
                     <label>INFO</label>
                     <textarea name="description" placeholder="Texto mostrado en /cmds">{{ cmd.description or '' }}</textarea>
+                    <label>Validación</label>
+                    <div class="inline">
+                      <select name="validation_type">
+                        <option value="none" {% if cmd.validation_type == 'none' %}selected{% endif %}>Sin validación</option>
+                        <option value="dni" {% if cmd.validation_type == 'dni' %}selected{% endif %}>DNI: 8 dígitos</option>
+                        <option value="digits" {% if cmd.validation_type in ['digits', 'number'] %}selected{% endif %}>Solo números</option>
+                        <option value="letters" {% if cmd.validation_type == 'letters' %}selected{% endif %}>Solo letras</option>
+                        <option value="regex" {% if cmd.validation_type == 'regex' %}selected{% endif %}>Regex personalizada</option>
+                      </select>
+                      <input name="validation_length" value="{{ cmd.validation_length or '' }}" placeholder="Longitud exacta">
+                    </div>
+                    <div class="inline">
+                      <input name="validation_min_length" value="{{ cmd.validation_min_length or '' }}" placeholder="Mínimo">
+                      <input name="validation_max_length" value="{{ cmd.validation_max_length or '' }}" placeholder="Máximo">
+                    </div>
+                    <input name="validation_regex" value="{{ cmd.validation_regex or '' }}" placeholder="Regex opcional">
+                    <input name="validation_empty_message" value="{{ cmd.validation_empty_message or '' }}" placeholder="Mensaje si está vacío">
+                    <input name="validation_invalid_message" value="{{ cmd.validation_invalid_message or '' }}" placeholder="Mensaje si está mal">
                     <button type="submit">Guardar</button>
                   </form>
                 </td>

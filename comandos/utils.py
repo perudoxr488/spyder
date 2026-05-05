@@ -155,6 +155,9 @@ def get_command_runtime_config(command_slug: str, default_cost: int = 1):
                     "is_active": bool(data.get("is_active", True)),
                     "category_slug": data.get("category_slug"),
                     "category_name": data.get("category_name"),
+                    "description": data.get("description") or "",
+                    "usage_hint": data.get("usage_hint") or "",
+                    "validation": data.get("validation") if isinstance(data.get("validation"), dict) else {},
                 }
 
     ensure_command_tables()
@@ -163,7 +166,8 @@ def get_command_runtime_config(command_slug: str, default_cost: int = 1):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT c.slug, c.name, c.cost, c.is_active, cat.slug AS category_slug, cat.name AS category_name
+        SELECT c.slug, c.name, c.cost, c.is_active, c.description, c.usage_hint,
+               cat.slug AS category_slug, cat.name AS category_name
         FROM command_catalog c
         LEFT JOIN command_categories cat ON cat.id = c.category_id
         WHERE c.slug = ?
@@ -181,7 +185,20 @@ def get_command_runtime_config(command_slug: str, default_cost: int = 1):
             "is_active": True,
             "category_slug": None,
             "category_name": None,
+            "description": "",
+            "usage_hint": "",
+            "validation": {},
         }
+    description = row["description"] or ""
+    validation = {}
+    if description.strip().startswith("{"):
+        try:
+            payload = json.loads(description)
+            if isinstance(payload, dict):
+                description = str(payload.get("info") or "").strip()
+                validation = payload.get("validation") if isinstance(payload.get("validation"), dict) else {}
+        except Exception:
+            pass
     return {
         "exists": True,
         "slug": row["slug"],
@@ -190,6 +207,9 @@ def get_command_runtime_config(command_slug: str, default_cost: int = 1):
         "is_active": bool(row["is_active"]),
         "category_slug": row["category_slug"],
         "category_name": row["category_name"],
+        "description": description,
+        "usage_hint": row["usage_hint"] or "",
+        "validation": validation,
     }
 
 

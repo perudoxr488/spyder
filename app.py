@@ -686,6 +686,79 @@ def get_catalog_categories():
     return rows
 
 
+def _split_command_description(raw_description: str | None):
+    raw = (raw_description or "").strip()
+    if not raw.startswith("{"):
+        return raw, {}
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return raw, {}
+    if not isinstance(payload, dict):
+        return raw, {}
+    validation = payload.get("validation")
+    if not isinstance(validation, dict):
+        validation = {}
+    return str(payload.get("info") or "").strip(), validation
+
+
+def _pack_command_description(info: str | None, validation: dict | None):
+    info = (info or "").strip()
+    clean_validation = {}
+    for key, value in (validation or {}).items():
+        if value is None:
+            continue
+        value = str(value).strip() if not isinstance(value, bool) else value
+        if value == "":
+            continue
+        clean_validation[key] = value
+    if not clean_validation:
+        return info
+    return json.dumps(
+        {"info": info, "validation": clean_validation},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _command_validation_from_form():
+    validation_type = (request.form.get("validation_type") or "none").strip().lower()
+    allowed_types = {"none", "digits", "number", "letters", "dni", "regex"}
+    if validation_type not in allowed_types:
+        validation_type = "none"
+    validation = {"type": validation_type}
+    for form_key, meta_key in (
+        ("validation_length", "length"),
+        ("validation_min_length", "min_length"),
+        ("validation_max_length", "max_length"),
+        ("validation_regex", "regex"),
+        ("validation_empty_message", "empty_message"),
+        ("validation_invalid_message", "invalid_message"),
+    ):
+        value = (request.form.get(form_key) or "").strip()
+        if value:
+            validation[meta_key] = value
+    if validation_type == "none" and len(validation) == 1:
+        return {}
+    return validation
+
+
+def _hydrate_command_row(row: dict):
+    raw_description = row.get("description") or ""
+    description, validation = _split_command_description(raw_description)
+    row["raw_description"] = raw_description
+    row["description"] = description
+    row["validation"] = validation
+    row["validation_type"] = validation.get("type") or "none"
+    row["validation_length"] = validation.get("length") or ""
+    row["validation_min_length"] = validation.get("min_length") or ""
+    row["validation_max_length"] = validation.get("max_length") or ""
+    row["validation_regex"] = validation.get("regex") or ""
+    row["validation_empty_message"] = validation.get("empty_message") or ""
+    row["validation_invalid_message"] = validation.get("invalid_message") or ""
+    return row
+
+
 def get_catalog_commands():
     conn = get_conn(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -699,7 +772,7 @@ def get_catalog_commands():
         ORDER BY COALESCE(cat.sort_order, 9999), COALESCE(cat.name, 'ZZZ'), c.sort_order ASC, c.name ASC
         """
     )
-    rows = [dict(row) for row in cur.fetchall()]
+    rows = [_hydrate_command_row(dict(row)) for row in cur.fetchall()]
     conn.close()
     return rows
 
@@ -710,7 +783,8 @@ def get_command_config_value(slug: str, default_cost: int = 1):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT c.slug, c.name, c.cost, c.is_active, cat.slug AS category_slug, cat.name AS category_name
+        SELECT c.slug, c.name, c.cost, c.is_active, c.description, c.usage_hint,
+               cat.slug AS category_slug, cat.name AS category_name
         FROM command_catalog c
         LEFT JOIN command_categories cat ON cat.id = c.category_id
         WHERE c.slug = ?
@@ -728,7 +802,11 @@ def get_command_config_value(slug: str, default_cost: int = 1):
             "is_active": True,
             "category_slug": None,
             "category_name": None,
+            "description": "",
+            "usage_hint": "",
+            "validation": {},
         }
+    description, validation = _split_command_description(row["description"] or "")
     return {
         "exists": True,
         "slug": row["slug"],
@@ -737,6 +815,10 @@ def get_command_config_value(slug: str, default_cost: int = 1):
         "is_active": bool(row["is_active"]),
         "category_slug": row["category_slug"],
         "category_name": row["category_name"],
+        "description": description,
+        "raw_description": row["description"] or "",
+        "usage_hint": row["usage_hint"] or "",
+        "validation": validation,
     }
 
 
@@ -3851,6 +3933,8 @@ def admin_save_command():
     slug = (request.form.get("slug") or "").strip().lower()
     name = (request.form.get("name") or "").strip()
     description = (request.form.get("description") or "").strip()
+    validation = _command_validation_from_form()
+    stored_description = _pack_command_description(description, validation)
     usage_hint = (request.form.get("usage_hint") or "").strip()
     category_id = request.form.get("category_id") or None
     try:
@@ -3884,7 +3968,7 @@ def admin_save_command():
             sort_order = excluded.sort_order,
             usage_hint = excluded.usage_hint
         """,
-        (slug, name, description, category_id, max(0, cost), is_active, sort_order, usage_hint),
+        (slug, name, stored_description, category_id, max(0, cost), is_active, sort_order, usage_hint),
     )
     conn.commit()
     conn.close()

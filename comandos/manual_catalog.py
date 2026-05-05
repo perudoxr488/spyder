@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -69,6 +70,77 @@ def _loader_assets(command_slug: str, category_slug: str | None) -> tuple[str | 
     return None, "Consultando…"
 
 
+def _parse_command_meta(command_cfg: dict) -> dict:
+    direct_validation = command_cfg.get("validation")
+    if isinstance(direct_validation, dict):
+        return {"info": (command_cfg.get("description") or "").strip(), "validation": direct_validation}
+    raw = (command_cfg.get("description") or "").strip()
+    if not raw.startswith("{"):
+        return {"info": raw, "validation": {}}
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return {"info": raw, "validation": {}}
+    if not isinstance(data, dict):
+        return {"info": raw, "validation": {}}
+    return {
+        "info": str(data.get("info") or "").strip(),
+        "validation": data.get("validation") if isinstance(data.get("validation"), dict) else {},
+    }
+
+
+def _validate_args(command_slug: str, command_cfg: dict, args: list[str]) -> str | None:
+    meta = _parse_command_meta(command_cfg)
+    validation = meta.get("validation") or {}
+    text = " ".join(args).strip()
+    usage_hint = (command_cfg.get("usage_hint") or f"/{command_slug} <datos>").strip()
+    empty_message = validation.get("empty_message") or f"Por favor, proporciona los datos después de /{command_slug}."
+    invalid_message = validation.get("invalid_message") or f"Por favor, usa el formato válido: {usage_hint}"
+    if not text:
+        return empty_message
+    kind = (validation.get("type") or "none").strip().lower()
+    if kind in {"", "none"}:
+        return None
+    if kind in {"digits", "number"} and not text.isdigit():
+        return invalid_message
+    if kind == "regex" and not (validation.get("regex") or "").strip():
+        return None
+    if kind == "letters":
+        compact = text.replace(" ", "")
+        if not compact.isalpha():
+            return invalid_message
+    if kind == "dni":
+        if not (text.isdigit() and len(text) == 8):
+            return validation.get("invalid_message") or "Por favor, introduce un número de DNI válido (8 dígitos)."
+    exact_len = validation.get("length")
+    try:
+        exact_len = int(exact_len) if exact_len not in (None, "") else None
+    except Exception:
+        exact_len = None
+    if exact_len and len(text) != exact_len:
+        return invalid_message
+    try:
+        min_len = int(validation.get("min_length") or 0)
+    except Exception:
+        min_len = 0
+    try:
+        max_len = int(validation.get("max_length") or 0)
+    except Exception:
+        max_len = 0
+    if min_len and len(text) < min_len:
+        return invalid_message
+    if max_len and len(text) > max_len:
+        return invalid_message
+    pattern = (validation.get("regex") or "").strip()
+    if pattern:
+        try:
+            if not re.fullmatch(pattern, text):
+                return invalid_message
+        except re.error:
+            pass
+    return None
+
+
 async def manual_catalog_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
     user = update.effective_user
@@ -98,16 +170,20 @@ async def manual_catalog_command(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     args = list(getattr(context, "args", None) or _extract_args(getattr(msg, "text", "") or getattr(msg, "caption", "")))
-    if not args:
+    validation_error = _validate_args(command_slug, command_cfg, args)
+    if validation_error and not args:
         usage_hint = (command_cfg.get("usage_hint") or f"/{command_slug} <datos>").strip()
         description = (command_cfg.get("name") or command_slug.upper()).strip()
         await msg.reply_text(
             f"📌 <b>{BOT_NAME} • {description.upper()}</b>\n\n"
-            f"Uso: <code>{usage_hint}</code>\n\n"
-            "Envía los datos según el formato indicado para crear la solicitud.",
+            f"{validation_error}\n\n"
+            f"Uso: <code>{usage_hint}</code>",
             parse_mode="HTML",
             reply_to_message_id=msg.message_id,
         )
+        return
+    if validation_error:
+        await msg.reply_text(validation_error, reply_to_message_id=msg.message_id)
         return
 
     valido, info_usuario = verificar_usuario(str(user.id))
