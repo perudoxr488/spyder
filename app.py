@@ -14,6 +14,8 @@ import io
 import zipfile
 import traceback
 import shutil
+from urllib import parse as _urlparse
+from urllib import request as _urlreq
 from flask_cors import CORS, cross_origin
 from werkzeug.security import check_password_hash, generate_password_hash
 from storage import db_path, get_data_dir
@@ -62,6 +64,13 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = PANEL_PUBLIC
 _BACKUP_CHECK_TS = 0.0
+_ERROR_NOTIFY_TS = 0.0
+TELEGRAM_TOKEN = (
+    os.environ.get("SPIDERSYN_TOKEN_BOT")
+    or os.environ.get("TOKEN_BOT")
+    or CFG.get("TOKEN_BOT")
+    or ""
+).strip()
 
 
 def _is_loopback_request() -> bool:
@@ -123,6 +132,30 @@ def configured_admin_ids() -> set[str]:
     else:
         values = str(raw).replace(",", " ").split()
     return {str(value).strip() for value in values if str(value).strip()}
+
+
+def send_telegram_message_sync(chat_id: str | int, text: str) -> bool:
+    if not TELEGRAM_TOKEN or not chat_id or not text:
+        return False
+    payload = _urlparse.urlencode(
+        {
+            "chat_id": str(chat_id),
+            "text": text[:3900],
+            "parse_mode": "HTML",
+            "disable_web_page_preview": "true",
+        }
+    ).encode("utf-8")
+    req = _urlreq.Request(
+        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    try:
+        with _urlreq.urlopen(req, timeout=8) as resp:
+            return (resp.getcode() or 0) == 200
+    except Exception:
+        return False
 
 # -------------------------
 # Utils
@@ -579,6 +612,7 @@ def log_audit_event(action: str, target: str = "", details: str = "", actor: str
 
 
 def log_error_event(exc: Exception):
+    global _ERROR_NOTIFY_TS
     try:
         conn = get_conn(REQUESTS_DB_PATH)
         cur = conn.cursor()
@@ -596,9 +630,32 @@ def log_error_event(exc: Exception):
             ),
         )
         conn.commit()
+        cutoff = (now_utc() - timedelta(minutes=15)).replace(microsecond=0).isoformat() + "Z"
+        cur.execute("SELECT COUNT(*) FROM error_logs WHERE created_at >= ?", (cutoff,))
+        recent_errors = int(cur.fetchone()[0] or 0)
         conn.close()
+        now_ts = time.time()
+        if recent_errors >= 3 and now_ts - _ERROR_NOTIFY_TS > 300:
+            _ERROR_NOTIFY_TS = now_ts
+            alert = (
+                "<b>#SPIDERSYN ⇒ ALERTA 500</b>\n\n"
+                f"Errores recientes: <code>{recent_errors}</code> en 15 min\n"
+                f"Ruta: <code>{html_escape(request.path)}</code>\n"
+                f"Mensaje: <code>{html_escape(str(exc)[:500])}</code>"
+            )
+            for admin_id in configured_admin_ids():
+                send_telegram_message_sync(admin_id, alert)
     except Exception:
         pass
+
+
+def html_escape(value) -> str:
+    return (
+        str(value or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
 
 
 @app.errorhandler(Exception)
@@ -1196,7 +1253,7 @@ def update_request_status_from_panel(request_id: int, action: str, note: str = "
         init_requests_db()
         conn = get_conn(REQUESTS_DB_PATH)
         cur = conn.cursor()
-        cur.execute("SELECT id, status FROM requests WHERE id = ?", (request_id,))
+        cur.execute("SELECT id, user_id, command, status FROM requests WHERE id = ?", (request_id,))
         row = cur.fetchone()
         if not row:
             conn.close()
@@ -1216,6 +1273,20 @@ def update_request_status_from_panel(request_id: int, action: str, note: str = "
         conn.commit()
         conn.close()
         log_audit_event("request.action", str(request_id), f"{action} => {new_status}; note={note}")
+        if new_status != "pending" and row[1]:
+            labels = {
+                "resolved": "resuelta",
+                "cancelled": "cerrada",
+                "failed": "marcada como fallida",
+            }
+            user_text = (
+                "<b>#SPIDERSYN ⇒ SOLICITUD ACTUALIZADA</b>\n\n"
+                f"Solicitud: <code>#{request_id}</code>\n"
+                f"Comando: <code>/{html_escape(row[2] or '')}</code>\n"
+                f"Estado: <code>{html_escape(labels.get(new_status, new_status))}</code>\n"
+                f"Nota: {html_escape(note) if note else '—'}"
+            )
+            send_telegram_message_sync(row[1], user_text)
         return True, f"Solicitud #{request_id} actualizada a {new_status}."
     except Exception as exc:
         log_error_event(exc)
@@ -1644,6 +1715,58 @@ def get_storage_snapshot():
         "railway_mount": os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or "",
         "items": items,
     }
+
+
+def get_health_metrics():
+    metrics = {
+        "usuarios": {"total": 0, "activos": 0, "baneados": 0},
+        "keys": {"total": 0, "disponibles": 0, "agotadas": 0, "canjes": 0},
+        "solicitudes": {"pending": 0, "resolved": 0, "cancelled": 0, "failed": 0},
+        "errores": {"ultimos_15m": 0, "ultimos_24h": 0},
+    }
+    try:
+        conn = get_conn(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM usuarios")
+        metrics["usuarios"]["total"] = int(cur.fetchone()[0] or 0)
+        cur.execute("SELECT COUNT(*) FROM usuarios WHERE UPPER(COALESCE(estado, 'ACTIVO')) != 'BANEADO'")
+        metrics["usuarios"]["activos"] = int(cur.fetchone()[0] or 0)
+        cur.execute("SELECT COUNT(*) FROM usuarios WHERE UPPER(COALESCE(estado, '')) = 'BANEADO'")
+        metrics["usuarios"]["baneados"] = int(cur.fetchone()[0] or 0)
+        conn.close()
+    except Exception:
+        pass
+    try:
+        conn = get_conn(KEYS_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM keys")
+        metrics["keys"]["total"] = int(cur.fetchone()[0] or 0)
+        cur.execute("SELECT COUNT(*) FROM keys WHERE COALESCE(usos, 0) > 0")
+        metrics["keys"]["disponibles"] = int(cur.fetchone()[0] or 0)
+        cur.execute("SELECT COUNT(*) FROM keys WHERE COALESCE(usos, 0) <= 0")
+        metrics["keys"]["agotadas"] = int(cur.fetchone()[0] or 0)
+        cur.execute("SELECT COUNT(*) FROM redemptions")
+        metrics["keys"]["canjes"] = int(cur.fetchone()[0] or 0)
+        conn.close()
+    except Exception:
+        pass
+    try:
+        conn = get_conn(REQUESTS_DB_PATH)
+        cur = conn.cursor()
+        for status in metrics["solicitudes"].keys():
+            cur.execute("SELECT COUNT(*) FROM requests WHERE status = ?", (status,))
+            metrics["solicitudes"][status] = int(cur.fetchone()[0] or 0)
+        now = now_utc()
+        cutoff_15 = (now - timedelta(minutes=15)).replace(microsecond=0).isoformat() + "Z"
+        cutoff_24 = (now - timedelta(hours=24)).replace(microsecond=0).isoformat() + "Z"
+        cur.execute("SELECT COUNT(*) FROM error_logs WHERE created_at >= ?", (cutoff_15,))
+        metrics["errores"]["ultimos_15m"] = int(cur.fetchone()[0] or 0)
+        cur.execute("SELECT COUNT(*) FROM error_logs WHERE created_at >= ?", (cutoff_24,))
+        metrics["errores"]["ultimos_24h"] = int(cur.fetchone()[0] or 0)
+        conn.close()
+    except Exception:
+        pass
+    return metrics
 
 
 def backups_dir() -> str:
@@ -3262,11 +3385,15 @@ def index():
 def health():
     storage = get_storage_snapshot()
     ok = all(item["exists"] for item in storage["items"])
+    metrics = get_health_metrics()
+    if metrics["errores"]["ultimos_15m"] >= 3:
+        ok = False
     return jsonify(
         {
             "status": "ok" if ok else "warn",
             "message": "SpiderSyn healthcheck",
             "storage": storage,
+            "metrics": metrics,
             "time": now_iso(),
         }
     ), 200

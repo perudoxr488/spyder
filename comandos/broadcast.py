@@ -6,7 +6,7 @@ from urllib import parse as _urlparse
 from urllib import request as _urlreq
 from urllib.error import HTTPError, URLError
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, Forbidden, RetryAfter, TimedOut
 from telegram.ext import ContextTypes
 
@@ -45,6 +45,7 @@ elif _admin_raw is None:
 else:
     _admin_values = str(_admin_raw).replace(",", " ").split()
 ADMIN_IDS = {int(x) for x in _admin_values if str(x).strip().isdigit()}
+BROADCAST_TTL_SECONDS = 900
 
 
 def _is_admin(user_id: int) -> bool:
@@ -82,7 +83,7 @@ def _usage() -> str:
         "<code>/global Hola a todos</code>\n"
         "<code>/global --all Hola incluyendo baneados</code>\n\n"
         "También puedes responder a una foto, archivo o mensaje con <code>/global</code> "
-        "y el bot lo copiará a todos los usuarios activos."
+        "y el bot lo copiará a todos los usuarios activos. El envío pide confirmación antes de salir."
     )
 
 
@@ -175,19 +176,96 @@ async def global_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("No hay usuarios registrados para enviar el mensaje.", reply_to_message_id=msg.message_id)
         return
 
-    progress = await msg.reply_text(
-        f"Enviando mensaje global a {len(users)} usuarios...",
+    token = f"{user.id}:{msg.message_id}"
+    pending = context.bot_data.setdefault("broadcast_pending", {})
+    pending[token] = {
+        "owner_id": user.id,
+        "scope": scope,
+        "users": users,
+        "text": text,
+        "from_chat_id": msg.chat_id,
+        "source_id": source_message.message_id if source_message else None,
+        "created": asyncio.get_running_loop().time(),
+    }
+    preview_lines = [
+        "<b>#SPIDERSYN ⇒ PREVIEW GLOBAL</b>",
+        "",
+        f"Alcance: <code>{html.escape(scope)}</code>",
+        f"Usuarios destino: <code>{len(users)}</code>",
+        f"Tipo: <code>{'mensaje copiado' if source_message else 'texto'}</code>",
+    ]
+    if text:
+        preview = html.escape(text[:700])
+        preview_lines.extend(["", "<b>Mensaje</b>", preview])
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("Confirmar envío", callback_data=f"global_confirm:{token}"),
+                InlineKeyboardButton("Cancelar", callback_data=f"global_cancel:{token}"),
+            ]
+        ]
+    )
+    await msg.reply_text(
+        "\n".join(preview_lines),
+        parse_mode="HTML",
+        reply_markup=keyboard,
         reply_to_message_id=msg.message_id,
     )
+
+
+async def global_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query or not query.from_user:
+        return
+    data = query.data or ""
+    action, _, token = data.partition(":")
+    pending = context.bot_data.setdefault("broadcast_pending", {})
+    job = pending.get(token)
+    if not job:
+        await query.answer("Este envío ya expiró o no existe.", show_alert=True)
+        return
+    if int(job.get("owner_id") or 0) != query.from_user.id:
+        await query.answer("Solo quien preparó el global puede confirmarlo.", show_alert=True)
+        return
+    age = asyncio.get_running_loop().time() - float(job.get("created") or 0)
+    if age > BROADCAST_TTL_SECONDS:
+        pending.pop(token, None)
+        await query.answer("Este envío expiró.", show_alert=True)
+        try:
+            await query.edit_message_text("Mensaje global expirado. Vuelve a usar /global.")
+        except Exception:
+            pass
+        return
+    if action == "global_cancel":
+        pending.pop(token, None)
+        await query.answer("Cancelado.")
+        try:
+            await query.edit_message_text("Mensaje global cancelado.")
+        except Exception:
+            pass
+        return
+    if action != "global_confirm":
+        await query.answer()
+        return
+
+    pending.pop(token, None)
+    await query.answer("Enviando...")
+    try:
+        progress = await query.edit_message_text(f"Enviando mensaje global a {len(job['users'])} usuarios...")
+    except Exception:
+        progress = query.message
 
     ok = 0
     failed = 0
     failed_reasons: dict[str, int] = {}
-    from_chat_id = msg.chat_id
-    source_id = source_message.message_id if source_message else None
+    users = job.get("users") or []
+    text = job.get("text") or ""
+    scope = job.get("scope") or "active"
+    from_chat_id = int(job.get("from_chat_id") or 0)
+    source_id = job.get("source_id")
     for idx, target_id in enumerate(users, start=1):
         if source_id:
-            sent, reason = await _safe_copy_message(context, target_id, from_chat_id, source_id)
+            sent, reason = await _safe_copy_message(context, target_id, from_chat_id, int(source_id))
         else:
             sent, reason = await _safe_send_text(context, target_id, text)
         if sent:
@@ -210,4 +288,5 @@ async def global_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await progress.edit_text(result, parse_mode="HTML")
     except Exception:
-        await msg.reply_text(result, parse_mode="HTML", reply_to_message_id=msg.message_id)
+        if query.message:
+            await query.message.reply_text(result, parse_mode="HTML")

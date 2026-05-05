@@ -232,6 +232,21 @@ def _build_buy_keyboard(settings: dict) -> InlineKeyboardMarkup:
 
     for i in range(0, len(buttons), 2):
         rows.append(buttons[i:i + 2])
+    extra_buttons = []
+    group_link = settings.get("GRUPO_LINK") or cfg.get("GRUPO_LINK")
+    channel_link = settings.get("CANAL_LINK") or cfg.get("CANAL_LINK")
+    support_link = settings.get("SUPPORT_LINK") or cfg.get("SUPPORT_LINK") or settings.get("SOPORTE_LINK") or cfg.get("SOPORTE_LINK")
+    terms_link = settings.get("TERMINOS_LINK") or cfg.get("TERMINOS_LINK")
+    if non_empty(group_link):
+        extra_buttons.append(btn("Grupo", group_link))
+    if non_empty(channel_link):
+        extra_buttons.append(btn("Canal", channel_link))
+    if non_empty(support_link):
+        extra_buttons.append(btn("Soporte", support_link))
+    if non_empty(terms_link):
+        extra_buttons.append(btn("Términos", terms_link))
+    for i in range(0, len(extra_buttons), 2):
+        rows.append(extra_buttons[i:i + 2])
     return InlineKeyboardMarkup(rows)
 
 

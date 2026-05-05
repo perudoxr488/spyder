@@ -295,6 +295,51 @@ def _get_commands_by_category(category_slug: str):
     return rows
 
 
+def _get_all_commands():
+    remote = _get_remote_catalog()
+    if remote is not None:
+        return [cmd for cmd in (remote.get("commands") or []) if cmd.get("is_active", True)]
+
+    _ensure_catalog_tables()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT c.slug, c.name, c.description, c.cost, c.usage_hint, c.is_active,
+               cat.slug AS category_slug, cat.name AS category_name
+        FROM command_catalog c
+        LEFT JOIN command_categories cat ON cat.id = c.category_id
+        WHERE c.is_active = 1
+        ORDER BY COALESCE(cat.sort_order, 9999), c.sort_order ASC, c.name ASC
+        """
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def _search_commands(q: str):
+    terms = (q or "").strip().lower().split()
+    if not terms:
+        return []
+    matches = []
+    for cmd in _get_all_commands():
+        fallback = DEFAULT_DETAILS.get(cmd.get("slug"), {})
+        hay = " ".join(
+            [
+                str(cmd.get("slug") or ""),
+                str(cmd.get("name") or ""),
+                str(cmd.get("description") or fallback.get("description") or ""),
+                str(cmd.get("usage_hint") or fallback.get("usage_hint") or ""),
+                str(cmd.get("category_name") or ""),
+            ]
+        ).lower()
+        if all(term in hay for term in terms):
+            matches.append(cmd)
+    return matches
+
+
 def _kb_home(categories: list[dict]):
     buttons = []
     row = []
@@ -375,6 +420,30 @@ def _category_caption(cfg: dict, category: dict, commands: list[dict], page: int
     return "\n".join(lines).rstrip()
 
 
+def _search_caption(cfg: dict, query: str, commands: list[dict]) -> str:
+    bot_name = _bot_brand(cfg)
+    lines = [
+        f"<b>{bot_name}</b> <i>BUSCADOR DE COMANDOS</i>",
+        f"🔎 <b>BÚSQUEDA</b> ➾ <code>{html.escape(query)}</code>",
+        f"🧩 <b>RESULTADOS</b> ➾ <code>{len(commands)}</code>",
+        "",
+    ]
+    if not commands:
+        lines.append("No encontré comandos con esa búsqueda.")
+        lines.append("Prueba por nombre, categoría o ejemplo de uso.")
+        return "\n".join(lines)
+    for cmd in commands[:15]:
+        fallback = DEFAULT_DETAILS.get(cmd.get("slug"), {})
+        usage = cmd.get("usage_hint") or fallback.get("usage_hint") or f"/{cmd.get('slug')}"
+        desc = cmd.get("description") or fallback.get("description") or "Sin descripción."
+        lines.append(f"• <code>{html.escape(usage)}</code> · <b>{html.escape(cmd.get('name') or cmd.get('slug'))}</b>")
+        lines.append(f"  <i>{html.escape(desc)}</i>")
+    if len(commands) > 15:
+        lines.append("")
+        lines.append(f"Mostrando 15 de {len(commands)} resultados. Afina la búsqueda para ver menos.")
+    return "\n".join(lines)
+
+
 async def _send_or_edit_menu(message_or_query, text: str, markup, image_url: str | None, edit: bool):
     query = message_or_query if edit else None
     message = query.message if edit else message_or_query
@@ -405,6 +474,17 @@ async def _send_or_edit_menu(message_or_query, text: str, markup, image_url: str
 
 async def cmds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cfg = _load_cfg()
+    query = " ".join(context.args or []).strip()
+    if query:
+        matches = _search_commands(query)
+        await update.effective_message.reply_text(
+            _search_caption(cfg, query, matches),
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Menú", callback_data="cmds_nav_home")]]),
+            disable_web_page_preview=True,
+            reply_to_message_id=update.effective_message.message_id,
+        )
+        return
     categories = _get_categories()
     await _send_or_edit_menu(
         update.effective_message,
