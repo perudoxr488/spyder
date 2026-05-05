@@ -210,7 +210,7 @@ def _get_antispam_seconds(user_id: int) -> int:
     # si no está registrado o falla, aplica 15s por defecto
     return 15
 
-def anti_spam_guard(handler_coro, cmd_name: str):
+def anti_spam_guard(handler_coro, cmd_name: str, skip_empty_args: bool = False):
     """
     Devuelve un wrapper async que respeta el anti-spam por usuario/command.
     """
@@ -220,6 +220,8 @@ def anti_spam_guard(handler_coro, cmd_name: str):
             return await handler_coro(update, context)
 
         user_id = update.effective_user.id
+        if skip_empty_args and not getattr(context, "args", None):
+            return await handler_coro(update, context)
         key = (user_id, cmd_name)
         now = time.monotonic()
         antispam = _get_antispam_seconds(user_id)
@@ -242,8 +244,8 @@ def anti_spam_guard(handler_coro, cmd_name: str):
     return _wrapped
 
 
-def add_command_handler(application, command_name: str, handler_coro, use_antispam: bool = False):
-    wrapped = anti_spam_guard(handler_coro, command_name) if use_antispam else handler_coro
+def add_command_handler(application, command_name: str, handler_coro, use_antispam: bool = False, skip_empty_args_antispam: bool = False):
+    wrapped = anti_spam_guard(handler_coro, command_name, skip_empty_args=skip_empty_args_antispam) if use_antispam else handler_coro
     application.add_handler(CommandHandler(command_name, wrapped))
 
 
@@ -422,7 +424,7 @@ def main():
     add_command_handler(application, "reopen", admin_requests.reopen_request)
     add_command_handler(application, "precios", precios_command)
     for dynamic_slug in _fetch_dynamic_command_slugs():
-        add_command_handler(application, dynamic_slug, manual_catalog_command, use_antispam=True)
+        add_command_handler(application, dynamic_slug, manual_catalog_command, use_antispam=True, skip_empty_args_antispam=True)
     application.add_handler(MessageHandler(filters.COMMAND, manual_catalog_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_requests.admin_followup_message))
     application.add_handler(MessageHandler(filters.ALL, admin_requests.forward_file))
