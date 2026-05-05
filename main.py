@@ -2,82 +2,11 @@ import os
 import sys
 import json
 import time
-import sqlite3
 from urllib import request as _urlreq
 from urllib.error import HTTPError, URLError
 from urllib import parse as _urlparse
-from datetime import datetime
-from telegram import Update
-from telegram.ext import CommandHandler, Application, CallbackQueryHandler, ContextTypes, CallbackContext, MessageHandler, filters
+from telegram.ext import CommandHandler, Application, CallbackQueryHandler, MessageHandler, filters
 
-from comandos.dnim import dnim_command
-from comandos.c4blanco import c4blanco_command
-from comandos.c4 import c4_command
-from comandos.dnivel import dnivel_command
-from comandos.dnivam import dnivam_command
-from comandos.dnivaz import dnivaz_command
-from comandos.c4azul import c4azul_command
-from comandos.dni import dni_command
-from comandos.dnif import dnif_command
-from comandos.nm import nm_command
-from comandos.revitec import revitec_command
-from comandos.tiveqr import tiveqr_command
-from comandos.soat import soat_command
-from comandos.tive import tive_command
-from comandos.tiveor import tiveor_command
-from comandos.tarjetafisica import tarjetafisica_command
-from comandos.placasiento import placasiento_command
-from comandos.pla import pla_command
-from comandos.papeletas import papeletas_command
-from comandos.insve import insve_command
-from comandos.licencia import licencia_command
-from comandos.licenciapdf import licenciapdf_command
-from comandos.bolinv import bolinv_command
-from comandos.rqv import rqv_command
-from comandos.denunciasv import denunciasv_command
-from comandos.det import det_command
-from comandos.ant import ant_command
-from comandos.antpe import antpe_command
-from comandos.antpo import antpo_command
-from comandos.antju import antju_command
-from comandos.denuncias import denuncias_command
-from comandos.rq import rq_command
-from comandos.fis import fis_command
-from comandos.fispdf import fispdf_command
-from comandos.hogar import hogar_command
-from comandos.ag import ag_command
-from comandos.agv import agv_command
-from comandos.her import her_command
-from comandos.numclaro import numclaro_command
-from comandos.correo import correo_command
-from comandos.enteldb import enteldb_command
-from comandos.movistar import movistar_command
-from comandos.bitel import bitel_command
-from comandos.claro import claro_command
-from comandos.vlop import vlop_command
-from comandos.vlnum import vlnum_command
-from comandos.cel import cel_command
-from comandos.tels import tels_command
-from comandos.telp import telp_command
-from comandos.tel import tel_command
-from comandos.sunarp import sunarp_command
-from comandos.sunarpdf import sunarpdf_command
-from comandos.sueldos import sueldos_command
-from comandos.trabajos import trabajos_command
-from comandos.actamdb import actamdb_command
-from comandos.actaddb import actaddb_command
-from comandos.migrapdf import migrapdf_command
-from comandos.afp import afp_command
-from comandos.dir import dir_command
-from comandos.trabajadores import trabajadores_command
-from comandos.sbs import sbs_command
-from comandos.notas import notas_command
-from comandos.essalud import essalud_command
-from comandos.doc import doc_command
-from comandos.ruc import ruc_command
-from comandos.sunat import sunat_command
-from comandos.seeker import seeker_command
-from comandos.facial import facial_command
 from comandos.start import start_command
 from comandos.buy import buy_command, buy_callback
 from comandos.me import me_command
@@ -96,6 +25,7 @@ from comandos.precios import precios_command
 from comandos.genkey import genkey, redeem, keyslog, keysinfo
 from comandos import admin_requests
 from comandos.manual_catalog import manual_catalog_command
+from comandos.request_catalog import REQUEST_COMMANDS, make_request_command
 from comandos.system_ops import status_command, panel_command, backup_command
 from comandos.broadcast import global_callback, global_command
 from comandos.helpadmin import helpadmin_command
@@ -261,6 +191,7 @@ def _fetch_dynamic_command_slugs() -> list[str]:
         "redeem", "keyslog", "keysinfo", "reply", "pending", "solicitudes", "close", "done", "fail",
         "templates", "rquick", "requestlog", "reopen", "precios",
     }
+    reserved.update(command_name for command_name, *_ in REQUEST_COMMANDS)
     slugs = []
     for cmd in commands:
         slug = str(cmd.get("slug") or "").strip().lower()
@@ -317,93 +248,15 @@ def main():
     application.add_handler(CallbackQueryHandler(admin_requests.request_buttons_callback, pattern="^adminreq:"))
     add_command_handler(application, "cmdsadmin", cmdsadmin_command)
     
-    # -------------------- COMANDOS RENIEC --------------------
-    add_command_handler(application, "nm", nm_command, use_antispam=True)
-    add_command_handler(application, "dni", dni_command, use_antispam=True)
-    add_command_handler(application, "dnif", dnif_command, use_antispam=True)
-    add_command_handler(application, "dnim", dnim_command, use_antispam=True)
-    add_command_handler(application, "c4", c4_command, use_antispam=True)
-    add_command_handler(application, "c4blanco", c4blanco_command, use_antispam=True)
-    add_command_handler(application, "c4azul", c4azul_command, use_antispam=True)
-    add_command_handler(application, "dnivel", dnivel_command, use_antispam=True)
-    add_command_handler(application, "dnivam", dnivam_command, use_antispam=True)
-    add_command_handler(application, "dnivaz", dnivaz_command, use_antispam=True)
-
-    # -------------------- COMANDOS VEHICULO --------------------
-    add_command_handler(application, "revitec", revitec_command, use_antispam=True)
-    add_command_handler(application, "tiveqr", tiveqr_command, use_antispam=True)
-    add_command_handler(application, "soat", soat_command, use_antispam=True)
-    add_command_handler(application, "tive", tive_command, use_antispam=True)
-    add_command_handler(application, "tiveor", tiveor_command, use_antispam=True)
-    add_command_handler(application, "tarjetafisica", tarjetafisica_command, use_antispam=True)
-    add_command_handler(application, "placasiento", placasiento_command, use_antispam=True)
-    add_command_handler(application, "pla", pla_command, use_antispam=True)
-    add_command_handler(application, "papeletas", papeletas_command, use_antispam=True)
-    add_command_handler(application, "bolinv", bolinv_command, use_antispam=True)
-    add_command_handler(application, "insve", insve_command, use_antispam=True)
-    add_command_handler(application, "licencia", licencia_command, use_antispam=True)
-    add_command_handler(application, "licenciapdf", licenciapdf_command, use_antispam=True)
-
-    # -------------------- COMANDOS DELITOS --------------------
-    add_command_handler(application, "rqv", rqv_command, use_antispam=True)
-    add_command_handler(application, "denunciasv", denunciasv_command, use_antispam=True)
-    add_command_handler(application, "det", det_command, use_antispam=True)
-    add_command_handler(application, "ant", ant_command, use_antispam=True)
-    add_command_handler(application, "antpe", antpe_command, use_antispam=True)
-    add_command_handler(application, "antpo", antpo_command, use_antispam=True)
-    add_command_handler(application, "antju", antju_command, use_antispam=True)
-    add_command_handler(application, "denuncias", denuncias_command, use_antispam=True)
-    add_command_handler(application, "rq", rq_command, use_antispam=True)
-    add_command_handler(application, "fis", fis_command, use_antispam=True)
-    add_command_handler(application, "fispdf", fispdf_command, use_antispam=True)
-
-    # -------------------- COMANDOS FAMILIA --------------------
-    add_command_handler(application, "hogar", hogar_command, use_antispam=True)
-    add_command_handler(application, "ag", ag_command, use_antispam=True)
-    add_command_handler(application, "agv", agv_command, use_antispam=True)
-    add_command_handler(application, "her", her_command, use_antispam=True)
-
-    # -------------------- COMANDOS TELEFONIA --------------------
-    add_command_handler(application, "numclaro", numclaro_command, use_antispam=True)
-    add_command_handler(application, "correo", correo_command, use_antispam=True)
-    add_command_handler(application, "enteldb", enteldb_command, use_antispam=True)
-    add_command_handler(application, "movistar", movistar_command, use_antispam=True)
-    add_command_handler(application, "bitel", bitel_command, use_antispam=True)
-    add_command_handler(application, "claro", claro_command, use_antispam=True)
-    add_command_handler(application, "vlop", vlop_command, use_antispam=True)
-    add_command_handler(application, "vlnum", vlnum_command, use_antispam=True)
-    add_command_handler(application, "cel", cel_command, use_antispam=True)
-    add_command_handler(application, "tels", tels_command, use_antispam=True)
-    add_command_handler(application, "telp", telp_command, use_antispam=True)
-    add_command_handler(application, "tel", tel_command, use_antispam=True)
-
-    # -------------------- COMANDOS SUNARP --------------------
-    add_command_handler(application, "sunarp", sunarp_command, use_antispam=True)
-    add_command_handler(application, "sunarpdf", sunarpdf_command, use_antispam=True)
-
-    # -------------------- COMANDOS LABORAL --------------------
-    add_command_handler(application, "sueldos", sueldos_command, use_antispam=True)
-    add_command_handler(application, "trabajos", trabajos_command, use_antispam=True)
-
-    # -------------------- COMANDOS ACTAS --------------------
-    add_command_handler(application, "actamdb", actamdb_command, use_antispam=True)
-    add_command_handler(application, "actaddb", actaddb_command, use_antispam=True)
-
-    # -------------------- COMANDOS MIGRACIONES --------------------
-    add_command_handler(application, "migrapdf", migrapdf_command, use_antispam=True)
-
-    # -------------------- COMANDOS VARIOS --------------------
-    add_command_handler(application, "afp", afp_command, use_antispam=True)
-    add_command_handler(application, "dir", dir_command, use_antispam=True)
-    add_command_handler(application, "trabajadores", trabajadores_command, use_antispam=True)
-    add_command_handler(application, "sbs", sbs_command, use_antispam=True)
-    add_command_handler(application, "notas", notas_command, use_antispam=True)
-    add_command_handler(application, "essalud", essalud_command, use_antispam=True)
-    add_command_handler(application, "doc", doc_command, use_antispam=True)
-    add_command_handler(application, "ruc", ruc_command, use_antispam=True)
-    add_command_handler(application, "sunat", sunat_command, use_antispam=True)
-    add_command_handler(application, "seeker", seeker_command, use_antispam=True)
-    add_command_handler(application, "facial", facial_command, use_antispam=True)
+    # Consultas manuales del catálogo. Todas comparten validación, créditos,
+    # loader y creación de solicitud al admin.
+    for command_name, default_cost, category_slug, validation in REQUEST_COMMANDS:
+        add_command_handler(
+            application,
+            command_name,
+            make_request_command(command_name, default_cost, category_slug, validation),
+            use_antispam=True,
+        )
     
     # -------------------- GENERAR Y CANJEAR KEYS --------------------
     add_command_handler(application, "genkey", genkey)
