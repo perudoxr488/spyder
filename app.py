@@ -2402,6 +2402,32 @@ def generate_license_key() -> str:
     return "-".join(chunks)
 
 
+def create_license_keys(tipo: str, cantidad: int, usos: int, total: int, creador_id: int) -> list[str]:
+    init_keys_db()
+    conn = get_conn(KEYS_DB_PATH)
+    cur = conn.cursor()
+    created = []
+    for _ in range(total):
+        for _attempt in range(20):
+            key = generate_license_key()
+            try:
+                cur.execute(
+                    "INSERT INTO keys (key, tipo, cantidad, usos, creador_id) VALUES (?, ?, ?, ?, ?)",
+                    (key, tipo, cantidad, usos, creador_id),
+                )
+                created.append(key)
+                break
+            except sqlite3.IntegrityError:
+                continue
+        else:
+            conn.rollback()
+            conn.close()
+            raise RuntimeError("No se pudo generar una key única")
+    conn.commit()
+    conn.close()
+    return created
+
+
 @app.route("/keys/generate", methods=["POST"])
 def keys_generate():
     auth_error = require_internal_access()
@@ -2424,28 +2450,10 @@ def keys_generate():
     if not creador_id.isdigit():
         return jsonify({"status": "error", "message": "creador_id inválido"}), 400
 
-    init_keys_db()
-    conn = get_conn(KEYS_DB_PATH)
-    cur = conn.cursor()
-    created = []
-    for _ in range(total):
-        for _attempt in range(20):
-            key = generate_license_key()
-            try:
-                cur.execute(
-                    "INSERT INTO keys (key, tipo, cantidad, usos, creador_id) VALUES (?, ?, ?, ?, ?)",
-                    (key, tipo, cantidad, usos, int(creador_id)),
-                )
-                created.append(key)
-                break
-            except sqlite3.IntegrityError:
-                continue
-        else:
-            conn.rollback()
-            conn.close()
-            return jsonify({"status": "error", "message": "No se pudo generar una key única"}), 500
-    conn.commit()
-    conn.close()
+    try:
+        created = create_license_keys(tipo, cantidad, usos, total, int(creador_id))
+    except RuntimeError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 500
     return jsonify({
         "status": "ok",
         "message": "Keys generadas correctamente",
@@ -3640,6 +3648,39 @@ def admin_save_request_template():
     conn.close()
     log_audit_event("request_template.save", key, f"billable={billable}")
     return redirect(url_for("admin_panel", section="solicitudes", flash=f"Plantilla {key} guardada."))
+
+
+@app.route("/admin/keys/generate", methods=["POST"])
+def admin_generate_keys():
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
+    if gate:
+        return gate
+    tipo = (request.form.get("tipo") or "").strip().lower()
+    try:
+        cantidad = int(request.form.get("cantidad") or 0)
+        usos = int(request.form.get("usos") or 1)
+        total = int(request.form.get("total") or 1)
+    except Exception:
+        return redirect(url_for("admin_panel", section="keys", flash="Cantidad, usos y total deben ser números."))
+    if tipo not in {"dias", "creditos"}:
+        return redirect(url_for("admin_panel", section="keys", flash="Tipo inválido. Usa días o créditos."))
+    if cantidad <= 0 or usos <= 0 or total <= 0:
+        return redirect(url_for("admin_panel", section="keys", flash="Cantidad, usos y total deben ser mayores a 0."))
+    if total > 100:
+        return redirect(url_for("admin_panel", section="keys", flash="No puedes generar más de 100 keys por lote."))
+
+    admin_ids = sorted(configured_admin_ids())
+    creador_raw = next((value for value in admin_ids if value.isdigit()), "0")
+    try:
+        created = create_license_keys(tipo, cantidad, usos, total, int(creador_raw))
+    except RuntimeError as exc:
+        return redirect(url_for("admin_panel", section="keys", flash=str(exc)))
+    preview = ", ".join(created[:8])
+    if len(created) > 8:
+        preview += f" y {len(created) - 8} más"
+    actor = session.get("panel_user") or "panel"
+    log_audit_event("keys.generate", tipo, f"cantidad={cantidad}; usos={usos}; total={total}; actor={actor}")
+    return redirect(url_for("admin_panel", section="keys", flash=f"Keys generadas: {preview}"))
 
 
 @app.route("/admin/user/save", methods=["POST"])

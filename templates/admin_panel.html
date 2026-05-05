@@ -748,7 +748,17 @@
       <div class="stack">
       <div class="card">
         <h2>Keys</h2>
-        <p class="small">Genera desde Telegram con <code>/genkey dias|creditos cantidad usos [total]</code>. Esta vista muestra lo persistido en la DB del web.</p>
+        <p class="small">Genera keys desde el panel o desde Telegram con <code>/genkey dias 12</code> y <code>/genkey creditos 100</code>.</p>
+        <form method="post" action="{{ url_for('admin_generate_keys') }}" class="inline" style="margin-top:14px;">
+          <select name="tipo" required>
+            <option value="creditos">Créditos</option>
+            <option value="dias">Días</option>
+          </select>
+          <input name="cantidad" type="number" min="1" value="100" placeholder="Cantidad" required>
+          <input name="usos" type="number" min="1" value="1" placeholder="Usos por key" required>
+          <input name="total" type="number" min="1" max="100" value="1" placeholder="Total keys" required>
+          <button type="submit">Generar keys</button>
+        </form>
         <form method="get" action="{{ url_for('admin_panel') }}" class="inline" style="margin-top:14px;">
           <input type="hidden" name="section" value="keys">
           <input name="key_q" value="{{ key_q }}" placeholder="Buscar key o creador">
