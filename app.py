@@ -2439,6 +2439,24 @@ def create_license_keys(tipo: str, cantidad: int, usos: int, total: int, creador
     return created
 
 
+def record_purchase_event(id_tg: str, vendedor: str, compro: str, estado: str = "ENTREGADA", notas: str = "", comprobante: str = "") -> int:
+    init_compras_db()
+    fecha = now_iso()
+    conn = get_conn(COMPRAS_DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO compras (ID_TG, VENDEDOR, FECHA, COMPRO, ESTADO, NOTAS, COMPROBANTE)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (str(id_tg), str(vendedor), fecha, str(compro), estado, notas, comprobante),
+    )
+    purchase_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return int(purchase_id)
+
+
 @app.route("/keys/generate", methods=["POST"])
 def keys_generate():
     auth_error = require_internal_access()
@@ -2555,10 +2573,35 @@ def keys_redeem():
     finally:
         conn_keys.close()
 
+    purchase_label = f"KEY:{tipo.upper()}:{cantidad}"
+    purchase_id = None
+    purchase_logged = False
+    try:
+        purchase_id = record_purchase_event(
+            id_tg=user_id,
+            vendedor="KEY",
+            compro=purchase_label,
+            estado="ENTREGADA",
+            notas=f"Canje automático de key {key}",
+            comprobante=key,
+        )
+        purchase_logged = True
+        log_audit_event("keys.redeem.purchase", key, f"user={user_id}; purchase_id={purchase_id}; {purchase_label}")
+    except Exception:
+        purchase_logged = False
+
     return jsonify({
         "status": "ok",
         "message": message,
-        "data": {"key": key, "tipo": tipo, "cantidad": cantidad, "usos_restantes": usos - 1, **result},
+        "data": {
+            "key": key,
+            "tipo": tipo,
+            "cantidad": cantidad,
+            "usos_restantes": usos - 1,
+            "purchase_logged": purchase_logged,
+            "purchase_id": purchase_id,
+            **result,
+        },
     }), 200
 
 
