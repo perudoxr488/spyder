@@ -246,6 +246,29 @@ def add_command_handler(application, command_name: str, handler_coro, use_antisp
     wrapped = anti_spam_guard(handler_coro, command_name) if use_antispam else handler_coro
     application.add_handler(CommandHandler(command_name, wrapped))
 
+
+def _fetch_dynamic_command_slugs() -> list[str]:
+    st, js = _fetch_json(f"{API_DB_BASE}/bot_catalog", timeout=15)
+    if st != 200 or (js or {}).get("status") != "ok":
+        return []
+    commands = ((js or {}).get("data") or {}).get("commands") or []
+    reserved = {
+        "start", "buy", "me", "register", "terminos", "historial", "compras", "status", "panel", "backup",
+        "global", "helpadmin", "dm", "ban", "unban", "user", "ventas", "errores", "setcred", "cred",
+        "uncred", "setsub", "sub", "unsub", "setrol", "setantispam", "cmds", "cmdsadmin", "genkey",
+        "redeem", "keyslog", "keysinfo", "reply", "pending", "solicitudes", "close", "done", "fail",
+        "templates", "rquick", "requestlog", "reopen", "precios",
+    }
+    slugs = []
+    for cmd in commands:
+        slug = str(cmd.get("slug") or "").strip().lower()
+        if not slug or slug in reserved or not slug.replace("_", "").replace("-", "").isalnum():
+            continue
+        if not bool(cmd.get("is_active", True)):
+            continue
+        slugs.append(slug)
+    return sorted(set(slugs))
+
 # ---------- Main ----------
 def main():
     admin_requests.init_db()
@@ -398,6 +421,8 @@ def main():
     add_command_handler(application, "requestlog", admin_requests.request_log_command)
     add_command_handler(application, "reopen", admin_requests.reopen_request)
     add_command_handler(application, "precios", precios_command)
+    for dynamic_slug in _fetch_dynamic_command_slugs():
+        add_command_handler(application, dynamic_slug, manual_catalog_command, use_antispam=True)
     application.add_handler(MessageHandler(filters.COMMAND, manual_catalog_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin_requests.admin_followup_message))
     application.add_handler(MessageHandler(filters.ALL, admin_requests.forward_file))

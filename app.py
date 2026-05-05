@@ -721,6 +721,7 @@ def get_command_config_value(slug: str, default_cost: int = 1):
     conn.close()
     if not row:
         return {
+            "exists": False,
             "slug": slug,
             "name": slug.upper(),
             "cost": int(default_cost),
@@ -729,6 +730,7 @@ def get_command_config_value(slug: str, default_cost: int = 1):
             "category_name": None,
         }
     return {
+        "exists": True,
         "slug": row["slug"],
         "name": row["name"],
         "cost": int(row["cost"] or default_cost),

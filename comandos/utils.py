@@ -148,6 +148,7 @@ def get_command_runtime_config(command_slug: str, default_cost: int = 1):
             data = js.get("data") or {}
             if data:
                 return {
+                    "exists": bool(data.get("exists", True)),
                     "slug": data.get("slug") or command_slug,
                     "name": data.get("name") or command_slug.upper(),
                     "cost": int(data.get("cost") or default_cost),
@@ -173,6 +174,7 @@ def get_command_runtime_config(command_slug: str, default_cost: int = 1):
     conn.close()
     if not row:
         return {
+            "exists": False,
             "slug": command_slug,
             "name": command_slug.upper(),
             "cost": int(default_cost),
@@ -181,6 +183,7 @@ def get_command_runtime_config(command_slug: str, default_cost: int = 1):
             "category_name": None,
         }
     return {
+        "exists": True,
         "slug": row["slug"],
         "name": row["name"],
         "cost": int(row["cost"] or default_cost),

@@ -34,6 +34,14 @@ def _extract_command_slug(message_text: str | None) -> str:
     return command.split("@", 1)[0].strip().lower()
 
 
+def _extract_args(message_text: str | None) -> list[str]:
+    text = (message_text or "").strip()
+    if not text:
+        return []
+    parts = text.split()
+    return parts[1:]
+
+
 def _category_loader_keys(category_slug: str | None) -> tuple[str | None, str | None]:
     slug = (category_slug or "").strip().upper()
     if not slug:
@@ -74,7 +82,7 @@ async def manual_catalog_command(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     command_cfg = get_command_runtime_config(command_slug, 1)
-    if command_cfg.get("slug") != command_slug:
+    if not command_cfg.get("exists", False) or command_cfg.get("slug") != command_slug:
         await msg.reply_text("⚠️ Ese comando no está registrado en el catálogo.")
         return
 
@@ -89,7 +97,8 @@ async def manual_catalog_command(update: Update, context: ContextTypes.DEFAULT_T
         await msg.reply_text("⚠️ Este comando está desactivado temporalmente.")
         return
 
-    if not context.args:
+    args = list(getattr(context, "args", None) or _extract_args(getattr(msg, "text", "") or getattr(msg, "caption", "")))
+    if not args:
         usage_hint = (command_cfg.get("usage_hint") or f"/{command_slug} <datos>").strip()
         description = (command_cfg.get("name") or command_slug.upper()).strip()
         await msg.reply_text(
