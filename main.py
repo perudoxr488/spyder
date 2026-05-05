@@ -99,6 +99,15 @@ from comandos.manual_catalog import manual_catalog_command
 from comandos.system_ops import status_command, panel_command, backup_command
 from comandos.broadcast import global_callback, global_command
 from comandos.helpadmin import helpadmin_command
+from comandos.admin_tools import (
+    admin_tools_callback,
+    ban_command,
+    dm_command,
+    errores_command,
+    unban_command,
+    user_command,
+    ventas_command,
+)
 
 # ---------- Config ----------
 CONFIG_FILE_PATH = 'config.json'
@@ -255,6 +264,12 @@ def main():
     add_command_handler(application, "backup", backup_command)
     add_command_handler(application, "global", global_command)
     add_command_handler(application, "helpadmin", helpadmin_command)
+    add_command_handler(application, "dm", dm_command)
+    add_command_handler(application, "ban", ban_command)
+    add_command_handler(application, "unban", unban_command)
+    add_command_handler(application, "user", user_command)
+    add_command_handler(application, "ventas", ventas_command)
+    add_command_handler(application, "errores", errores_command)
 
     # Admin ops
     add_command_handler(application, "setcred", setcred_command)
@@ -273,6 +288,7 @@ def main():
     application.add_handler(CallbackQueryHandler(cmds_callback, pattern="^cmds_"))
     application.add_handler(CallbackQueryHandler(buy_callback, pattern="^buy:"))
     application.add_handler(CallbackQueryHandler(global_callback, pattern="^global_"))
+    application.add_handler(CallbackQueryHandler(admin_tools_callback, pattern="^admintool:"))
     application.add_handler(CallbackQueryHandler(admin_requests.request_buttons_callback, pattern="^adminreq:"))
     add_command_handler(application, "cmdsadmin", cmdsadmin_command)
     
@@ -373,6 +389,7 @@ def main():
     # --- Handlers del admin ---
     add_command_handler(application, "reply", admin_requests.reply_request)
     add_command_handler(application, "pending", admin_requests.pending_requests_command)
+    add_command_handler(application, "solicitudes", admin_requests.pending_requests_command)
     add_command_handler(application, "close", admin_requests.close_request)
     add_command_handler(application, "done", admin_requests.done_request)
     add_command_handler(application, "fail", admin_requests.fail_request)

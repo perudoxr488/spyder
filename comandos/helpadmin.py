@@ -60,6 +60,9 @@ async def helpadmin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<code>/unsub ID|PLAN|DIAS</code> - Restar días. Ej: <code>/unsub 7454664711|PREMIUM|7</code>",
         "<code>/setrol ID|ROL</code> - Cambiar rol. Ej: <code>/setrol 7454664711|SELLER</code>",
         "<code>/setantispam ID|SEGUNDOS</code> - Cambiar anti-spam. Ej: <code>/setantispam 7454664711|5</code>",
+        "<code>/user ID</code> - Perfil admin rápido. Ej: <code>/user 7454664711</code>",
+        "<code>/dm ID mensaje</code> - Mensaje directo. Ej: <code>/dm 7454664711 Hola</code>",
+        "<code>/ban ID</code> y <code>/unban ID</code> - Ban/desban con confirmación",
         "",
         "<b>Keys</b>",
         "<code>/genkey dias 30</code> - 1 key de 30 días",
@@ -77,6 +80,7 @@ async def helpadmin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<code>/fail ID motivo</code> - Marcar fallida",
         "<code>/reopen ID</code> - Reabrir",
         "<code>/requestlog 20</code> - Historial rápido",
+        "<code>/solicitudes</code> - Alias de pendientes",
         "",
         "<b>Mensajes</b>",
         "<code>/global mensaje</code> - Preparar mensaje global con preview",
@@ -86,6 +90,8 @@ async def helpadmin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>Catálogo</b>",
         "<code>/cmdsadmin</code> - Comandos activos y precios",
         "<code>/precios</code> - Vista rápida de precios",
+        "<code>/ventas</code> - Resumen de ventas",
+        "<code>/errores</code> - Últimos errores 500/API",
     ]
     await msg.reply_text(
         "\n".join(lines),

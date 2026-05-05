@@ -959,6 +959,8 @@ def get_dashboard_snapshot():
         "top_vendedores": [],
         "consultas_por_dia": [],
         "ventas_por_dia": [],
+        "ventas_por_periodo": [],
+        "ventas_por_tipo": [],
         "usuarios_por_plan": [],
         "usuarios_por_estado": [],
         "solicitudes_por_estado": [],
@@ -1053,6 +1055,41 @@ def get_dashboard_snapshot():
         for key, start in cutoff_iso.items():
             cur.execute("SELECT COUNT(*) FROM compras WHERE FECHA >= ?", (start,))
             data["periods"][key]["ventas"] = cur.fetchone()[0]
+            cur.execute(
+                """
+                SELECT COUNT(*) total,
+                       SUM(CASE WHEN UPPER(COMPRO) LIKE '%CRED%' OR UPPER(COMPRO) LIKE '%KEY:CREDITOS%' THEN 1 ELSE 0 END) creditos,
+                       SUM(CASE WHEN UPPER(COMPRO) LIKE '%DIA%' OR UPPER(COMPRO) LIKE '%KEY:DIAS%' THEN 1 ELSE 0 END) dias
+                FROM compras
+                WHERE FECHA >= ?
+                """,
+                (start,),
+            )
+            r = cur.fetchone()
+            data["ventas_por_periodo"].append({
+                "label": data["periods"][key]["label"],
+                "total": int(r[0] or 0),
+                "creditos": int(r[1] or 0),
+                "dias": int(r[2] or 0),
+            })
+        cur.execute(
+            """
+            SELECT
+                SUM(CASE WHEN UPPER(COMPRO) LIKE '%CRED%' OR UPPER(COMPRO) LIKE '%KEY:CREDITOS%' THEN 1 ELSE 0 END) creditos,
+                SUM(CASE WHEN UPPER(COMPRO) LIKE '%DIA%' OR UPPER(COMPRO) LIKE '%KEY:DIAS%' THEN 1 ELSE 0 END) dias,
+                SUM(CASE WHEN UPPER(COMPRO) LIKE 'KEY:%' THEN 1 ELSE 0 END) keys,
+                COUNT(*) total
+            FROM compras
+            """
+        )
+        r = cur.fetchone()
+        total = int(r[3] or 0)
+        data["ventas_por_tipo"] = [
+            {"tipo": "Créditos", "total": int(r[0] or 0)},
+            {"tipo": "Días", "total": int(r[1] or 0)},
+            {"tipo": "Keys", "total": int(r[2] or 0)},
+            {"tipo": "Otros", "total": max(0, total - int(r[0] or 0) - int(r[1] or 0))},
+        ]
         cur.execute(
             """
             SELECT COALESCE(NULLIF(TRIM(VENDEDOR), ''), 'SIN VENDEDOR') vendedor, COUNT(*) total
@@ -1117,6 +1154,72 @@ def get_request_items(status: str | None = None, limit: int = 50):
     return items
 
 
+def get_request_items_filtered(
+    q: str = "",
+    status: str = "",
+    command: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    limit: int = 500,
+):
+    q = (q or "").strip().lower()
+    status = (status or "").strip().lower()
+    command = (command or "").strip().lower()
+    date_from = (date_from or "").strip()
+    date_to = (date_to or "").strip()
+    clauses = []
+    params = []
+    if status:
+        clauses.append("LOWER(COALESCE(status, '')) = ?")
+        params.append(status)
+    if command:
+        clauses.append("LOWER(COALESCE(command, '')) = ?")
+        params.append(command)
+    if date_from:
+        clauses.append("created_at >= ?")
+        params.append(f"{date_from}T00:00:00Z")
+    if date_to:
+        clauses.append("created_at <= ?")
+        params.append(f"{date_to}T23:59:59Z")
+    if q:
+        clauses.append(
+            """
+            (
+                LOWER(CAST(id AS TEXT)) LIKE ?
+                OR LOWER(CAST(user_id AS TEXT)) LIKE ?
+                OR LOWER(COALESCE(username, '')) LIKE ?
+                OR LOWER(COALESCE(command, '')) LIKE ?
+                OR LOWER(COALESCE(payload, '')) LIKE ?
+                OR LOWER(COALESCE(status, '')) LIKE ?
+                OR LOWER(COALESCE(resolution_note, '')) LIKE ?
+            )
+            """
+        )
+        like = f"%{q}%"
+        params.extend([like, like, like, like, like, like, like])
+    where = "WHERE " + " AND ".join(clauses) if clauses else ""
+    try:
+        conn = get_conn(REQUESTS_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT id, user_id, username, command, payload, status, admin_msg_id, cost,
+                   created_at, resolved_at, resolved_by, resolution_note
+            FROM requests
+            {where}
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            [*params, limit],
+        )
+        rows = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
 def get_request_templates():
     items = []
     try:
@@ -1129,6 +1232,68 @@ def get_request_templates():
     except Exception:
         items = []
     return items
+
+
+def get_user_key_redemptions(user_id: str, limit: int = 80):
+    user_id = (user_id or "").strip()
+    if not user_id:
+        return []
+    try:
+        init_keys_db()
+        conn = get_conn(KEYS_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT r.id, r.key, r.user_id, r.fecha_canje,
+                   k.tipo, k.cantidad, k.usos, k.creador_id, k.fecha_creacion
+            FROM redemptions r
+            LEFT JOIN keys k ON k.key = r.key
+            WHERE CAST(r.user_id AS TEXT) = ?
+            ORDER BY r.id DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        )
+        rows = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
+def get_user_activity(user_id: str, limit: int = 60):
+    activity = []
+    for row in get_admin_purchases(user_id=user_id, limit=30):
+        activity.append({
+            "type": "Compra",
+            "label": row.get("COMPRO") or "—",
+            "detail": f"Vendedor: {row.get('VENDEDOR') or '—'} · Estado: {row.get('ESTADO') or 'ENTREGADA'}",
+            "date": row.get("FECHA") or "",
+        })
+    for row in get_admin_history(user_id=user_id, limit=30):
+        activity.append({
+            "type": "Consulta",
+            "label": f"/{row.get('consulta') or '—'}",
+            "detail": row.get("valor") or "—",
+            "date": row.get("fecha") or "",
+        })
+    for row in get_user_key_redemptions(user_id, limit=30):
+        activity.append({
+            "type": "Key",
+            "label": row.get("key") or "—",
+            "detail": f"{row.get('tipo') or '—'} · {row.get('cantidad') or 0}",
+            "date": row.get("fecha_canje") or "",
+        })
+    for row in get_user_request_items(user_id, limit=30):
+        activity.append({
+            "type": "Solicitud",
+            "label": f"#{row.get('id')} /{row.get('command') or '—'}",
+            "detail": f"{row.get('status') or '—'} · {row.get('resolution_note') or row.get('payload') or '—'}",
+            "date": row.get("resolved_at") or row.get("created_at") or "",
+        })
+    activity.sort(key=lambda item: item.get("date") or "", reverse=True)
+    return activity[:limit]
 
 
 def get_key_items(q: str = "", tipo: str = "", status: str = "", limit: int = 200):
@@ -1575,13 +1740,15 @@ def get_user_request_items(user_id: str, limit: int = 80):
 def get_user_profile_snapshot(user_id: str):
     user_id = (user_id or "").strip()
     if not user_id:
-        return {"user": None, "purchases": [], "history": [], "requests": []}
+        return {"user": None, "purchases": [], "history": [], "requests": [], "keys": [], "activity": []}
     row = get_user_by_id(user_id)
     return {
         "user": dict(row) if row else None,
         "purchases": get_admin_purchases(user_id=user_id, limit=80),
         "history": get_admin_history(user_id=user_id, limit=80),
         "requests": get_user_request_items(user_id, limit=80),
+        "keys": get_user_key_redemptions(user_id, limit=80),
+        "activity": get_user_activity(user_id, limit=80),
     }
 
 
@@ -3466,7 +3633,7 @@ def admin_panel():
     user_plan = (request.args.get("uplan") or "").upper()
     admin_users = get_admin_users(q=user_q, status=user_status, plan=user_plan, limit=250)
     profile_user_id = (request.args.get("uid") or request.args.get("user_id") or "").strip()
-    user_profile = get_user_profile_snapshot(profile_user_id) if profile_user_id else {"user": None, "purchases": [], "history": [], "requests": []}
+    user_profile = get_user_profile_snapshot(profile_user_id) if profile_user_id else {"user": None, "purchases": [], "history": [], "requests": [], "keys": [], "activity": []}
     purchase_user = request.args.get("purchase_user", "")
     purchase_vendor = request.args.get("purchase_vendor", "")
     purchase_from = request.args.get("purchase_from", "")
@@ -3505,11 +3672,20 @@ def admin_panel():
         selected_vendor = vendor_summary[0]["vendedor"]
     vendor_detail = get_vendor_sales_detail(selected_vendor, limit=120) if selected_vendor else []
     vendor_total_sales = sum(int(item.get("total_ventas") or 0) for item in vendor_summary)
-    all_requests = get_request_items(limit=300)
     request_q = request.args.get("rq", "")
     request_status = request.args.get("rstatus", "")
     request_command = request.args.get("rcommand", "")
-    filtered_requests = filter_request_items(all_requests, q=request_q, status=request_status, command=request_command)
+    request_from = request.args.get("rfrom", "")
+    request_to = request.args.get("rto", "")
+    all_requests = get_request_items(limit=1000)
+    filtered_requests = get_request_items_filtered(
+        q=request_q,
+        status=request_status,
+        command=request_command,
+        date_from=request_from,
+        date_to=request_to,
+        limit=500,
+    )
     pending_requests = [r for r in all_requests if (r.get("status") or "") == "pending"]
     recent_requests = [r for r in all_requests if (r.get("status") or "") != "pending"]
     filtered_pending_requests = [r for r in filtered_requests if (r.get("status") or "") == "pending"]
@@ -3563,6 +3739,7 @@ def admin_panel():
         storage=get_storage_snapshot(),
         daily_backups=get_daily_backups(limit=10),
         panel_role=panel_role,
+        panel_user=session.get("panel_user") or PANEL_USER,
         panel_nav_items=panel_nav_items_for_role(panel_role),
         panel_accounts=get_panel_accounts(),
         panel_roles=sorted(PANEL_ROLES),
@@ -3594,6 +3771,8 @@ def admin_panel():
         request_q=request_q,
         request_status=request_status,
         request_command=request_command,
+        request_from=request_from,
+        request_to=request_to,
         request_templates=get_request_templates(),
         key_items=key_items,
         key_redemptions=key_redemptions,
@@ -3899,9 +4078,72 @@ def admin_request_action():
             rq=request.form.get("rq", ""),
             rstatus=request.form.get("rstatus", ""),
             rcommand=request.form.get("rcommand", ""),
+            rfrom=request.form.get("rfrom", ""),
+            rto=request.form.get("rto", ""),
             flash=flash,
         )
     )
+
+
+@app.route("/admin/export/solicitudes.csv", methods=["GET"])
+def admin_export_requests_csv():
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR", "SOPORTE")
+    if gate:
+        return gate
+    rows = get_request_items_filtered(
+        q=request.args.get("rq", ""),
+        status=request.args.get("rstatus", ""),
+        command=request.args.get("rcommand", ""),
+        date_from=request.args.get("rfrom", ""),
+        date_to=request.args.get("rto", ""),
+        limit=10000,
+    )
+    return _csv_response(
+        "spidersyn-solicitudes.csv",
+        rows,
+        ["id", "user_id", "username", "command", "payload", "status", "cost", "created_at", "resolved_at", "resolved_by", "resolution_note"],
+    )
+
+
+@app.route("/admin/export/solicitudes.json", methods=["GET"])
+def admin_export_requests_json():
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR", "SOPORTE")
+    if gate:
+        return gate
+    filters = {
+        "rq": request.args.get("rq", ""),
+        "rstatus": request.args.get("rstatus", ""),
+        "rcommand": request.args.get("rcommand", ""),
+        "rfrom": request.args.get("rfrom", ""),
+        "rto": request.args.get("rto", ""),
+    }
+    rows = get_request_items_filtered(
+        q=filters["rq"],
+        status=filters["rstatus"],
+        command=filters["rcommand"],
+        date_from=filters["rfrom"],
+        date_to=filters["rto"],
+        limit=10000,
+    )
+    return _json_download_response(
+        "spidersyn-solicitudes.json",
+        {"exported_at": now_iso(), "filters": filters, "total": len(rows), "data": rows},
+    )
+
+
+@app.route("/admin/user/message", methods=["POST"])
+def admin_user_message():
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR", "SOPORTE")
+    if gate:
+        return gate
+    id_tg = (request.form.get("id_tg") or "").strip()
+    text = (request.form.get("message") or "").strip()
+    if not id_tg or not text:
+        return redirect(url_for("admin_panel", section="usuario", uid=id_tg, flash="Falta ID o mensaje."))
+    ok = send_telegram_message_sync(id_tg, f"<b>#SPIDERSYN ⇒ MENSAJE</b>\n\n{html_escape(text)}")
+    log_audit_event("user.message", id_tg, f"sent={ok}; len={len(text)}")
+    flash = "Mensaje enviado." if ok else "No se pudo enviar el mensaje. Quizá el usuario bloqueó el bot."
+    return redirect(url_for("admin_panel", section="usuario", uid=id_tg, flash=flash))
 
 
 @app.route("/admin/keys/generate", methods=["POST"])
@@ -4115,6 +4357,26 @@ def admin_export_purchases_json():
         "spidersyn-compras.json",
         {"exported_at": now_iso(), "filters": filters, "total": len(rows), "data": rows},
     )
+
+
+@app.route("/admin/purchase/create", methods=["POST"])
+def admin_create_purchase():
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR", "SELLER")
+    if gate:
+        return gate
+    id_tg = (request.form.get("id_tg") or "").strip()
+    vendedor = (request.form.get("vendedor") or session.get("panel_user") or PANEL_USER).strip()
+    compro = (request.form.get("compro") or "").strip()
+    estado = (request.form.get("estado") or "ENTREGADA").strip().upper()
+    notas = (request.form.get("notas") or "").strip()
+    comprobante = (request.form.get("comprobante") or "").strip()
+    if estado not in PURCHASE_STATUSES:
+        estado = "ENTREGADA"
+    if not id_tg or not compro:
+        return redirect(url_for("admin_panel", section="compras", flash="Falta ID usuario o compra."))
+    purchase_id = record_purchase_event(id_tg, vendedor, compro, estado=estado, notas=notas, comprobante=comprobante)
+    log_audit_event("purchase.create", str(purchase_id), f"user={id_tg}; vendedor={vendedor}; compro={compro}")
+    return redirect(url_for("admin_panel", section="compras", purchase_user=id_tg, flash=f"Compra #{purchase_id} creada."))
 
 
 @app.route("/admin/purchase/update", methods=["POST"])
@@ -4532,6 +4794,63 @@ def internal_request_upsert():
     conn.commit()
     conn.close()
     return jsonify({"status": "ok", "message": "Solicitud sincronizada", "id": request_id}), 200
+
+
+@app.route("/internal/admin/user", methods=["GET"])
+def internal_admin_user_summary():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
+    user_id = (request.args.get("ID_TG") or "").strip()
+    if not user_id:
+        return jsonify({"status": "error", "message": "Falta ID_TG"}), 400
+    profile = get_user_profile_snapshot(user_id)
+    if not profile.get("user"):
+        return jsonify({"status": "error", "message": "Usuario no encontrado"}), 404
+    return jsonify({"status": "ok", "data": profile}), 200
+
+
+@app.route("/internal/admin/user-action", methods=["POST"])
+def internal_admin_user_action():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
+    id_tg = str(request_value("ID_TG") or "").strip()
+    action = str(request_value("action") or "").strip().lower()
+    if not id_tg or action not in {"ban", "unban"}:
+        return jsonify({"status": "error", "message": "Parámetros inválidos"}), 400
+    row = get_user_by_id(id_tg)
+    if not row:
+        return jsonify({"status": "error", "message": "Usuario no encontrado"}), 404
+    estado = "BANEADO" if action == "ban" else "ACTIVO"
+    conn = get_conn(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("UPDATE usuarios SET estado = ? WHERE id_tg = ?", (estado, id_tg))
+    conn.commit()
+    conn.close()
+    log_audit_event("bot.user.action", id_tg, action)
+    return jsonify({"status": "ok", "message": f"Usuario {id_tg} actualizado", "estado": estado}), 200
+
+
+@app.route("/internal/admin/sales-summary", methods=["GET"])
+def internal_admin_sales_summary():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
+    dashboard = get_dashboard_snapshot()
+    return jsonify({"status": "ok", "data": {"periods": dashboard.get("periods", {}), "ventas_por_periodo": dashboard.get("ventas_por_periodo", []), "top_vendedores": dashboard.get("top_vendedores", []), "ventas_por_tipo": dashboard.get("ventas_por_tipo", [])}}), 200
+
+
+@app.route("/internal/admin/errors", methods=["GET"])
+def internal_admin_errors():
+    auth_error = require_internal_access()
+    if auth_error:
+        return auth_error
+    try:
+        limit = max(1, min(50, int(request.args.get("limit") or 10)))
+    except Exception:
+        limit = 10
+    return jsonify({"status": "ok", "data": get_error_logs(limit=limit), "metrics": get_health_metrics().get("errores", {})}), 200
 
 
 @app.route("/admin/export", methods=["GET"])

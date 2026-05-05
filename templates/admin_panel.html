@@ -78,6 +78,7 @@
     body.dark input::placeholder, body.dark textarea::placeholder { color:#7f938a; }
     body.dark .telegram-bubble { border:1px solid rgba(255,255,255,.06); }
     @media (max-width: 1100px) { .layout, .grid, .section-grid, .summary, .three, .preview-grid { grid-template-columns:1fr; } .sidebar { position:static; } .toolbar { align-items:stretch; flex-direction:column; } .toolbar-right, .search-form { width:100%; } .search-form { min-width:0; } .search-form input { min-width:0; } }
+    @media (max-width: 760px) { .wrap { padding:12px; } .hero, .card { border-radius:12px; padding:14px; } .inline { grid-template-columns:1fr; } table { display:block; overflow-x:auto; white-space:nowrap; } th, td { padding:8px 6px; } .metric h3 { font-size:22px; } input, select, textarea, button { min-height:42px; } .subnav, .toolbar-right { align-items:stretch; flex-direction:column; } .subnav a { text-align:center; } }
   </style>
 </head>
 <body>
@@ -360,6 +361,11 @@
             <div class="mini-card"><strong>Web</strong><div>{{ user_profile.user.user_web or '—' }}</div><div class="small">Registro: {{ user_profile.user.register_web }}</div></div>
             <div class="mini-card"><strong>WSP</strong><div>{{ user_profile.user.number_wsp or '—' }}</div><div class="small">Registro: {{ user_profile.user.register_wsp }}</div></div>
           </div>
+          <form method="post" action="{{ url_for('admin_user_message') }}" class="inline" style="margin-top:14px;">
+            <input type="hidden" name="id_tg" value="{{ user_profile.user.id_tg }}">
+            <input name="message" placeholder="Mensaje directo al usuario" required>
+            <button type="submit">Enviar DM</button>
+          </form>
           {% else %}
           <p>No se encontró usuario. Escribe un ID y abre el perfil.</p>
           {% endif %}
@@ -392,6 +398,30 @@
           </div>
         </div>
         <div class="card">
+          <h2>Actividad reciente</h2>
+          <table>
+            <thead><tr><th>Tipo</th><th>Detalle</th><th>Info</th><th>Fecha</th></tr></thead>
+            <tbody>
+              {% for item in user_profile.activity %}
+              <tr><td>{{ item.type }}</td><td><strong>{{ item.label }}</strong></td><td>{{ item.detail }}</td><td>{{ item.date or '—' }}</td></tr>
+              {% endfor %}
+              {% if not user_profile.activity %}<tr><td colspan="4">Sin actividad.</td></tr>{% endif %}
+            </tbody>
+          </table>
+        </div>
+        <div class="card">
+          <h2>Keys canjeadas</h2>
+          <table>
+            <thead><tr><th>ID</th><th>Key</th><th>Tipo</th><th>Cantidad</th><th>Fecha</th></tr></thead>
+            <tbody>
+              {% for key in user_profile['keys'] %}
+              <tr><td>#{{ key.id }}</td><td><strong>{{ key.key }}</strong></td><td>{{ key.tipo or '—' }}</td><td>{{ key.cantidad or 0 }}</td><td>{{ key.fecha_canje or '—' }}</td></tr>
+              {% endfor %}
+              {% if not user_profile['keys'] %}<tr><td colspan="5">Sin keys canjeadas.</td></tr>{% endif %}
+            </tbody>
+          </table>
+        </div>
+        <div class="card">
           <h2>Solicitudes</h2>
           <table>
             <thead><tr><th>ID</th><th>Comando</th><th>Estado</th><th>Costo</th><th>Pedido</th><th>Cierre</th></tr></thead>
@@ -416,6 +446,22 @@
       {% if active_section == 'compras' %}
       <div class="stack">
         <div class="card">
+          <h2>Crear compra manual</h2>
+          <form method="post" action="{{ url_for('admin_create_purchase') }}" class="inline">
+            <input name="id_tg" value="{{ purchase_user }}" placeholder="ID usuario" required>
+            <input name="vendedor" value="{{ purchase_vendor or panel_user }}" placeholder="Vendedor">
+            <input name="compro" placeholder="Ej: CREDITOS +100 / PLAN 30 DIAS" required>
+            <select name="estado">
+              {% for status in purchase_statuses %}
+              <option value="{{ status }}" {% if status == 'ENTREGADA' %}selected{% endif %}>{{ status }}</option>
+              {% endfor %}
+            </select>
+            <input name="notas" placeholder="Nota interna">
+            <input name="comprobante" placeholder="Comprobante o URL">
+            <button type="submit">Crear compra</button>
+          </form>
+        </div>
+        <div class="card">
           <div class="toolbar">
             <div>
               <h2>Compras</h2>
@@ -425,6 +471,14 @@
               <a href="{{ url_for('admin_export_purchases_csv', purchase_user=purchase_user, purchase_vendor=purchase_vendor, purchase_from=purchase_from, purchase_to=purchase_to, purchase_kind=purchase_kind, purchase_status=purchase_status) }}">CSV</a>
               <a href="{{ url_for('admin_export_purchases_json', purchase_user=purchase_user, purchase_vendor=purchase_vendor, purchase_from=purchase_from, purchase_to=purchase_to, purchase_kind=purchase_kind, purchase_status=purchase_status) }}">JSON</a>
             </div>
+          </div>
+          <div class="summary" style="margin-bottom:14px;">
+            {% for item in dashboard.ventas_por_periodo %}
+            <div class="metric"><span class="pill">{{ item.label }}</span><h3>{{ item.total }}</h3><div class="small">Cred: {{ item.creditos }} · Días: {{ item.dias }}</div></div>
+            {% endfor %}
+            {% for item in dashboard.ventas_por_tipo %}
+            <div class="metric"><span class="pill">{{ item.tipo }}</span><h3>{{ item.total }}</h3><div class="small">Clasificación global</div></div>
+            {% endfor %}
           </div>
           <form method="get" action="{{ url_for('admin_panel') }}" class="inline" style="margin-bottom:14px;">
             <input type="hidden" name="section" value="compras">
@@ -619,6 +673,10 @@
       <div class="stack">
       <div class="card">
         <h2>Vista de solicitudes</h2>
+        <div class="toolbar-right" style="margin-bottom:12px;">
+          <a href="{{ url_for('admin_export_requests_csv', rq=request_q, rstatus=request_status, rcommand=request_command, rfrom=request_from, rto=request_to) }}">CSV</a>
+          <a href="{{ url_for('admin_export_requests_json', rq=request_q, rstatus=request_status, rcommand=request_command, rfrom=request_from, rto=request_to) }}">JSON</a>
+        </div>
         <form method="get" action="{{ url_for('admin_panel') }}" class="inline" style="margin-bottom:14px;">
           <input type="hidden" name="section" value="solicitudes">
           <input name="rq" value="{{ request_q }}" placeholder="Buscar por id, usuario, comando o nota">
@@ -635,6 +693,8 @@
             <option value="{{ slug }}" {% if request_command == slug %}selected{% endif %}>/{{ slug }}</option>
             {% endfor %}
           </select>
+          <input name="rfrom" type="date" value="{{ request_from }}">
+          <input name="rto" type="date" value="{{ request_to }}">
           <button type="submit">Filtrar</button>
         </form>
         <div class="summary">
@@ -673,6 +733,8 @@
                     <input type="hidden" name="rq" value="{{ request_q }}">
                     <input type="hidden" name="rstatus" value="{{ request_status }}">
                     <input type="hidden" name="rcommand" value="{{ request_command }}">
+                    <input type="hidden" name="rfrom" value="{{ request_from }}">
+                    <input type="hidden" name="rto" value="{{ request_to }}">
                     <input name="note" placeholder="Nota interna">
                     <div class="inline">
                       <button type="submit" name="action" value="resolve">Resolver</button>
@@ -718,6 +780,8 @@
                     <input type="hidden" name="rq" value="{{ request_q }}">
                     <input type="hidden" name="rstatus" value="{{ request_status }}">
                     <input type="hidden" name="rcommand" value="{{ request_command }}">
+                    <input type="hidden" name="rfrom" value="{{ request_from }}">
+                    <input type="hidden" name="rto" value="{{ request_to }}">
                     <button type="submit" name="action" value="reopen">Reabrir</button>
                   </form>
                 </td>
