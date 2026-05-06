@@ -740,6 +740,8 @@
                 <td><span class="badge {% if req.status == 'pending' %}off{% else %}ok{% endif %}">{{ req.status }}</span><div class="small">{{ req.created_at or '—' }}</div></td>
                 <td>{{ req.admin_msg_id or '—' }}</td>
                 <td>
+                  <details class="command-edit">
+                    <summary>Atender</summary>
                   <form method="post" action="{{ url_for('admin_request_action') }}" class="stack">
                     <input type="hidden" name="request_id" value="{{ req.id }}">
                     <input type="hidden" name="rq" value="{{ request_q }}">
@@ -751,18 +753,29 @@
                     <div class="inline">
                       <select name="template_key">
                         <option value="">Plantilla rápida</option>
+                        <option disabled>Globales</option>
                         {% for tpl in request_templates %}
+                        {% if not tpl.command %}
                         <option value="{{ tpl.key }}">{{ tpl.key }}{% if tpl.billable %} · cobra{% endif %}</option>
+                        {% endif %}
+                        {% endfor %}
+                        <option disabled>Para /{{ req.command }}</option>
+                        {% for tpl in request_templates %}
+                        {% if tpl.command == req.command %}
+                        <option value="{{ tpl.key }}">{{ tpl.key }}{% if tpl.billable %} · cobra{% endif %}</option>
+                        {% endif %}
                         {% endfor %}
                       </select>
                       <button type="submit" name="action" value="template">Enviar plantilla</button>
                     </div>
+                    <button class="secondary" type="submit" name="action" value="template_resolve">Enviar plantilla y resolver</button>
                     <div class="inline">
                       <button type="submit" name="action" value="resolve">Resolver</button>
                       <button type="submit" name="action" value="close">Cerrar</button>
                       <button type="submit" name="action" value="fail">Fallida</button>
                     </div>
                   </form>
+                  </details>
                 </td>
               </tr>
               {% endfor %}
@@ -830,6 +843,14 @@
         <form method="post" action="{{ url_for('admin_save_request_template') }}" class="stack" style="margin-bottom:14px;">
           <div class="inline">
             <input name="key" placeholder="clave, ej. completado_nm" required>
+            <select name="command">
+              <option value="">Global para todos</option>
+              {% for slug in request_command_options %}
+              <option value="{{ slug }}">Solo /{{ slug }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="inline">
             <select name="billable">
               <option value="0">Sin cobro</option>
               <option value="1">Con cobro</option>
@@ -839,13 +860,21 @@
           <button type="submit">Crear plantilla</button>
         </form>
         <table>
-          <thead><tr><th>Clave</th><th>Texto</th><th>Cobro</th><th>Guardar</th></tr></thead>
+          <thead><tr><th>Clave</th><th>Comando</th><th>Texto</th><th>Cobro</th><th>Guardar</th></tr></thead>
           <tbody>
             {% for tpl in request_templates %}
             <tr>
               <td><strong>{{ tpl.key }}</strong></td>
               <td>
-                <form method="post" action="{{ url_for('admin_save_request_template') }}">
+                <select name="command" form="tpl-{{ tpl.key }}">
+                  <option value="" {% if not tpl.command %}selected{% endif %}>Global</option>
+                  {% for slug in request_command_options %}
+                  <option value="{{ slug }}" {% if tpl.command == slug %}selected{% endif %}>/{{ slug }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td>
+                <form id="tpl-{{ tpl.key }}" method="post" action="{{ url_for('admin_save_request_template') }}">
                   <input type="hidden" name="key" value="{{ tpl.key }}">
                   <textarea name="text" required>{{ tpl.text }}</textarea>
               </td>

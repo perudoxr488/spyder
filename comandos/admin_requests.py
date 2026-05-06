@@ -225,6 +225,7 @@ def init_db():
         """
         CREATE TABLE IF NOT EXISTS request_templates (
             key TEXT PRIMARY KEY,
+            command TEXT DEFAULT '',
             text TEXT NOT NULL,
             billable INTEGER DEFAULT 0
         )
@@ -247,6 +248,10 @@ def init_db():
         c.execute("ALTER TABLE requests ADD COLUMN resolved_by INTEGER")
     if "resolution_note" not in columns:
         c.execute("ALTER TABLE requests ADD COLUMN resolution_note TEXT")
+    c.execute("PRAGMA table_info(request_templates)")
+    template_columns = {row[1] for row in c.fetchall()}
+    if "command" not in template_columns:
+        c.execute("ALTER TABLE request_templates ADD COLUMN command TEXT DEFAULT ''")
 
     c.execute("UPDATE requests SET created_at = COALESCE(created_at, ?) WHERE created_at IS NULL OR created_at = ''", (now_iso(),))
     for key, text in DEFAULT_QUICK_TEMPLATES.items():

@@ -553,11 +553,16 @@ def init_requests_db():
         """
         CREATE TABLE IF NOT EXISTS request_templates (
             key TEXT PRIMARY KEY,
+            command TEXT DEFAULT '',
             text TEXT NOT NULL,
             billable INTEGER DEFAULT 0
         )
         """
     )
+    cur.execute("PRAGMA table_info(request_templates)")
+    template_columns = {row[1] for row in cur.fetchall()}
+    if "command" not in template_columns:
+        cur.execute("ALTER TABLE request_templates ADD COLUMN command TEXT DEFAULT ''")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS error_logs (
@@ -1242,6 +1247,7 @@ def get_dashboard_snapshot():
 def get_request_items(status: str | None = None, limit: int = 50):
     items = []
     try:
+        init_requests_db()
         conn = get_conn(REQUESTS_DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
@@ -1344,10 +1350,11 @@ def get_request_items_filtered(
 def get_request_templates():
     items = []
     try:
+        init_requests_db()
         conn = get_conn(REQUESTS_DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        cur.execute("SELECT key, text, billable FROM request_templates ORDER BY key")
+        cur.execute("SELECT key, COALESCE(command, '') AS command, text, billable FROM request_templates ORDER BY COALESCE(command, ''), key")
         items = [dict(row) for row in cur.fetchall()]
         conn.close()
     except Exception:
@@ -1360,10 +1367,11 @@ def get_request_template_by_key(key: str):
     if not key:
         return None
     try:
+        init_requests_db()
         conn = get_conn(REQUESTS_DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        cur.execute("SELECT key, text, billable FROM request_templates WHERE key = ?", (key,))
+        cur.execute("SELECT key, COALESCE(command, '') AS command, text, billable FROM request_templates WHERE key = ?", (key,))
         row = cur.fetchone()
         conn.close()
         return dict(row) if row else None
@@ -1371,7 +1379,7 @@ def get_request_template_by_key(key: str):
         return None
 
 
-def send_request_template_from_panel(request_id: int, template_key: str) -> tuple[bool, str]:
+def send_request_template_from_panel(request_id: int, template_key: str, resolve: bool = False) -> tuple[bool, str]:
     template = get_request_template_by_key(template_key)
     if not template:
         return False, "Plantilla no encontrada."
@@ -1398,19 +1406,34 @@ def send_request_template_from_panel(request_id: int, template_key: str) -> tupl
             conn.close()
             return False, "No se pudo enviar el mensaje al usuario."
         note = f"[template:{template_key}] {text}"
-        cur.execute(
-            """
-            UPDATE requests
-            SET delivery_count = COALESCE(delivery_count, 0) + 1,
-                resolution_note = ?
-            WHERE id = ?
-            """,
-            (note, request_id),
-        )
+        if resolve:
+            cur.execute(
+                """
+                UPDATE requests
+                SET status = 'resolved',
+                    delivery_count = COALESCE(delivery_count, 0) + 1,
+                    resolved_at = ?,
+                    resolved_by = ?,
+                    resolution_note = ?
+                WHERE id = ?
+                """,
+                (now_iso(), session.get("panel_user") or PANEL_USER, note, request_id),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE requests
+                SET delivery_count = COALESCE(delivery_count, 0) + 1,
+                    resolution_note = ?
+                WHERE id = ?
+                """,
+                (note, request_id),
+            )
         conn.commit()
         conn.close()
-        log_audit_event("request.template", str(request_id), f"template={template_key}")
-        return True, f"Plantilla {template_key} enviada para solicitud #{request_id}."
+        log_audit_event("request.template", str(request_id), f"template={template_key}; resolve={resolve}")
+        suffix = " y solicitud resuelta" if resolve else ""
+        return True, f"Plantilla {template_key} enviada{suffix} para solicitud #{request_id}."
     except Exception as exc:
         log_error_event(exc)
         return False, f"No se pudo enviar la plantilla a solicitud #{request_id}."
@@ -4218,23 +4241,25 @@ def admin_save_request_template():
     if gate:
         return gate
     key = (request.form.get("key") or "").strip().lower()
+    command = (request.form.get("command") or "").strip().lower().lstrip("/")
     text = (request.form.get("text") or "").strip()
     billable = 1 if (request.form.get("billable") or "0") == "1" else 0
     if not key or not text:
         return redirect(url_for("admin_panel", section="solicitudes", flash="Plantilla inválida."))
+    init_requests_db()
     conn = get_conn(REQUESTS_DB_PATH)
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO request_templates (key, text, billable)
-        VALUES (?, ?, ?)
-        ON CONFLICT(key) DO UPDATE SET text = excluded.text, billable = excluded.billable
+        INSERT INTO request_templates (key, command, text, billable)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET command = excluded.command, text = excluded.text, billable = excluded.billable
         """,
-        (key, text, billable),
+        (key, command, text, billable),
     )
     conn.commit()
     conn.close()
-    log_audit_event("request_template.save", key, f"billable={billable}")
+    log_audit_event("request_template.save", key, f"command={command or '*'}; billable={billable}")
     return redirect(url_for("admin_panel", section="solicitudes", flash=f"Plantilla {key} guardada."))
 
 
@@ -4251,8 +4276,12 @@ def admin_request_action():
     note = (request.form.get("note") or "").strip()
     if request_id <= 0:
         flash = "Solicitud inválida."
-    elif action == "template":
-        ok, flash = send_request_template_from_panel(request_id, request.form.get("template_key", ""))
+    elif action in {"template", "template_resolve"}:
+        ok, flash = send_request_template_from_panel(
+            request_id,
+            request.form.get("template_key", ""),
+            resolve=action == "template_resolve",
+        )
         if not ok:
             flash = flash or "No se pudo enviar la plantilla."
     else:
