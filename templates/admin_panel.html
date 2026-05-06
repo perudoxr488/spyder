@@ -1033,6 +1033,8 @@
             <input name="slug" placeholder="reniec-premium" required>
             <label>Nombre</label>
             <input name="name" placeholder="RENIEC PREMIUM" required>
+            <label>Emoji</label>
+            <input name="icon" placeholder="🔎">
             <label>Descripción</label>
             <textarea name="description" placeholder="Descripción interna"></textarea>
             <div class="inline">
@@ -1148,24 +1150,36 @@
         <div class="card">
           <h2>Categorías</h2>
           <table>
-            <thead><tr><th>Slug</th><th>Nombre</th><th>Orden</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <thead><tr><th>Slug</th><th>Emoji</th><th>Nombre</th><th>Orden</th><th>Estado</th><th>Acciones</th></tr></thead>
             <tbody>
               {% for cat in categories %}
               <tr>
                 <td><strong>{{ cat.slug }}</strong><div class="small">{{ cat.description or '—' }}</div></td>
+                <td style="font-size:22px;">{{ cat.icon or '🧩' }}</td>
                 <td>{{ cat.name }}</td>
                 <td>{{ cat.sort_order }}</td>
                 <td>{% if cat.is_active %}<span class="badge ok">Activa</span>{% else %}<span class="badge off">Inactiva</span>{% endif %}</td>
                 <td>
-                  <form method="post" action="{{ url_for('admin_save_category') }}">
-                    <input type="hidden" name="original_slug" value="{{ cat.slug }}">
-                    <input type="hidden" name="slug" value="{{ cat.slug }}">
-                    <input type="hidden" name="name" value="{{ cat.name }}">
-                    <input type="hidden" name="description" value="{{ cat.description or '' }}">
-                    <input type="hidden" name="sort_order" value="{{ cat.sort_order }}">
-                    <input type="hidden" name="is_active" value="{{ 0 if cat.is_active else 1 }}">
-                    <button type="submit" class="{{ 'danger' if cat.is_active else 'secondary' }}">{{ 'Desactivar' if cat.is_active else 'Activar' }}</button>
-                  </form>
+                  <details class="command-edit">
+                    <summary>Editar</summary>
+                    <form method="post" action="{{ url_for('admin_save_category') }}">
+                      <input type="hidden" name="original_slug" value="{{ cat.slug }}">
+                      <div class="inline">
+                        <input name="slug" value="{{ cat.slug }}" required>
+                        <input name="icon" value="{{ cat.icon or '' }}" placeholder="Emoji">
+                      </div>
+                      <input name="name" value="{{ cat.name }}" required>
+                      <textarea name="description" placeholder="Descripción interna">{{ cat.description or '' }}</textarea>
+                      <div class="inline">
+                        <input name="sort_order" type="number" value="{{ cat.sort_order }}">
+                        <select name="is_active">
+                          <option value="1" {% if cat.is_active %}selected{% endif %}>Activa</option>
+                          <option value="0" {% if not cat.is_active %}selected{% endif %}>Inactiva</option>
+                        </select>
+                      </div>
+                      <button type="submit">Guardar</button>
+                    </form>
+                  </details>
                 </td>
               </tr>
               {% endfor %}

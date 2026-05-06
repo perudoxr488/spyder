@@ -190,6 +190,15 @@ def _icon_for_category(slug: str) -> str:
     return icon_map.get((slug or "").lower(), "🧩")
 
 
+def _category_icon(category: dict | None) -> str:
+    if isinstance(category, dict):
+        icon = str(category.get("icon") or "").strip()
+        if icon:
+            return icon
+        return _icon_for_category(str(category.get("slug") or ""))
+    return "🧩"
+
+
 def _ensure_catalog_tables():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -200,11 +209,16 @@ def _ensure_catalog_tables():
             slug TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL,
             description TEXT DEFAULT '',
+            icon TEXT DEFAULT '',
             sort_order INTEGER DEFAULT 0,
             is_active INTEGER DEFAULT 1
         )
         """
     )
+    cur.execute("PRAGMA table_info(command_categories)")
+    category_columns = {row[1] for row in cur.fetchall()}
+    if "icon" not in category_columns:
+        cur.execute("ALTER TABLE command_categories ADD COLUMN icon TEXT DEFAULT ''")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS command_catalog (
@@ -257,7 +271,7 @@ def _get_categories():
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT id, slug, name, description, sort_order
+        SELECT id, slug, name, description, icon, sort_order
         FROM command_categories
         WHERE is_active = 1
         ORDER BY sort_order ASC, name ASC
@@ -348,7 +362,7 @@ def _kb_home(categories: list[dict]):
     for cat in categories:
         row.append(
             InlineKeyboardButton(
-                text=f"[{_icon_for_category(cat['slug'])}] {cat['name']}",
+                text=f"[{_category_icon(cat)}] {cat['name']}",
                 callback_data=f"cmds_cat_{cat['slug']}_1",
             )
         )
@@ -414,7 +428,7 @@ def _category_caption(cfg: dict, category: dict, commands: list[dict], page: int
 
     lines = [
         f"<b>{bot_name}</b> <i>CATÁLOGO ACTIVO</i>",
-        f"🏷️ <b>Categoría</b> ⇒ <code>{html.escape(category['name'])} {_icon_for_category(category['slug'])}</code>",
+        f"🏷️ <b>Categoría</b> ⇒ <code>{html.escape(category['name'])} {_category_icon(category)}</code>",
         f"🧩 <b>Comandos</b> ⇒ <code>{total_commands}</code> disponibles",
         f"📖 <b>Página</b> ⇒ <code>{page}/{total_pages}</code>",
         "",

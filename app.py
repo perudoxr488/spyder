@@ -263,6 +263,19 @@ DEFAULT_CATEGORIES = [
     ("extras", "EXTRAS", "Consultas adicionales", 10, 1),
 ]
 
+DEFAULT_CATEGORY_ICONS = {
+    "reniec": "🪪",
+    "vehiculos": "🚗",
+    "delitos": "👮",
+    "familia": "👨‍👩‍👦",
+    "telefonia": "📞",
+    "sunarp": "🏠",
+    "laboral": "💼",
+    "actas": "📋",
+    "migraciones": "⚖️",
+    "extras": "📚",
+}
+
 DEFAULT_COMMANDS = [
     ("nm", "NM", "reniec", 2),
     ("dni", "DNI", "reniec", 1),
@@ -387,11 +400,16 @@ def init_catalog_db():
             slug TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL,
             description TEXT DEFAULT '',
+            icon TEXT DEFAULT '',
             sort_order INTEGER DEFAULT 0,
             is_active INTEGER DEFAULT 1
         )
         """
     )
+    cur.execute("PRAGMA table_info(command_categories)")
+    category_columns = {row[1] for row in cur.fetchall()}
+    if "icon" not in category_columns:
+        cur.execute("ALTER TABLE command_categories ADD COLUMN icon TEXT DEFAULT ''")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS command_catalog (
@@ -410,12 +428,13 @@ def init_catalog_db():
     for slug, name, description, sort_order, is_active in DEFAULT_CATEGORIES:
         cur.execute(
             """
-            INSERT INTO command_categories (slug, name, description, sort_order, is_active)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO command_categories (slug, name, description, icon, sort_order, is_active)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(slug) DO UPDATE SET
-                name = COALESCE(command_categories.name, excluded.name)
+                name = COALESCE(command_categories.name, excluded.name),
+                icon = COALESCE(NULLIF(command_categories.icon, ''), excluded.icon)
             """,
-            (slug, name, description, sort_order, is_active),
+            (slug, name, description, DEFAULT_CATEGORY_ICONS.get(slug, "🧩"), sort_order, is_active),
         )
     conn.commit()
 
@@ -720,7 +739,7 @@ def get_catalog_categories():
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT id, slug, name, description, sort_order, is_active
+        SELECT id, slug, name, description, icon, sort_order, is_active
         FROM command_categories
         ORDER BY sort_order ASC, name ASC
         """
@@ -4256,6 +4275,7 @@ def admin_save_category():
     original_slug = (request.form.get("original_slug") or slug).strip().lower()
     name = (request.form.get("name") or "").strip()
     description = (request.form.get("description") or "").strip()
+    icon = (request.form.get("icon") or "").strip()[:12]
     try:
         sort_order = int(request.form.get("sort_order") or 0)
     except Exception:
@@ -4275,22 +4295,22 @@ def admin_save_category():
         cur.execute(
             """
             UPDATE command_categories
-            SET slug = ?, name = ?, description = ?, sort_order = ?, is_active = ?
+            SET slug = ?, name = ?, description = ?, icon = ?, sort_order = ?, is_active = ?
             WHERE slug = ?
             """,
-            (slug, name, description, sort_order, is_active, original_slug),
+            (slug, name, description, icon, sort_order, is_active, original_slug),
         )
     else:
         cur.execute(
             """
-            INSERT INTO command_categories (slug, name, description, sort_order, is_active)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO command_categories (slug, name, description, icon, sort_order, is_active)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (slug, name, description, sort_order, is_active),
+            (slug, name, description, icon, sort_order, is_active),
         )
     conn.commit()
     conn.close()
-    log_audit_event("category.save", slug, f"name={name}; active={is_active}; order={sort_order}")
+    log_audit_event("category.save", slug, f"name={name}; icon={icon}; active={is_active}; order={sort_order}")
     return redirect(url_for("admin_panel", section="categorias", flash=f"Categoría {name} guardada."))
 
 
@@ -5474,15 +5494,23 @@ def admin_import_panel():
     for cat in payload.get("categories", []):
         cur.execute(
             """
-            INSERT INTO command_categories (slug, name, description, sort_order, is_active)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO command_categories (slug, name, description, icon, sort_order, is_active)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(slug) DO UPDATE SET
                 name = excluded.name,
                 description = excluded.description,
+                icon = excluded.icon,
                 sort_order = excluded.sort_order,
                 is_active = excluded.is_active
             """,
-            (cat.get("slug"), cat.get("name"), cat.get("description", ""), int(cat.get("sort_order", 0)), int(bool(cat.get("is_active", 1)))),
+            (
+                cat.get("slug"),
+                cat.get("name"),
+                cat.get("description", ""),
+                cat.get("icon") or DEFAULT_CATEGORY_ICONS.get(str(cat.get("slug") or "").lower(), "🧩"),
+                int(cat.get("sort_order", 0)),
+                int(bool(cat.get("is_active", 1))),
+            ),
         )
     conn.commit()
     cur.execute("SELECT id, slug FROM command_categories")
