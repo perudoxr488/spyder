@@ -60,6 +60,18 @@
     .pager { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:14px 0; }
     .pager a { text-decoration:none; color:var(--accent); font-weight:700; }
     .toolbar-right { display:flex; gap:10px; align-items:center; }
+    .command-tools { grid-template-columns:repeat(2, minmax(0, 1fr)); align-items:start; }
+    .table-scroll { overflow-x:auto; }
+    .commands-table { min-width:920px; }
+    .commands-table td:nth-child(1) { min-width:220px; }
+    .commands-table td:nth-child(2) { min-width:130px; }
+    .commands-table td:nth-child(3), .commands-table td:nth-child(5) { white-space:nowrap; }
+    .commands-table td:nth-child(6) { width:420px; }
+    .command-edit summary { cursor:pointer; display:inline-flex; align-items:center; justify-content:center; min-width:92px; padding:8px 12px; border-radius:999px; background:var(--surface-2); color:var(--ink); font-weight:700; list-style:none; }
+    .command-edit summary::-webkit-details-marker { display:none; }
+    .command-edit[open] summary { margin-bottom:10px; }
+    .command-edit form { min-width:380px; display:grid; gap:8px; }
+    .command-edit textarea { min-height:64px; }
     body.dark .hero { background:linear-gradient(180deg, rgba(16,25,23,.95) 0%, rgba(15,23,21,.9) 100%); }
     body.dark .card { background:linear-gradient(180deg, rgba(17,26,24,.98) 0%, rgba(15,22,21,.95) 100%); }
     body.dark .side-link { background:linear-gradient(180deg, rgba(18,28,26,.96) 0%, rgba(15,23,21,.94) 100%); }
@@ -77,7 +89,7 @@
     body.dark button.secondary { color:#2d1c08; }
     body.dark input::placeholder, body.dark textarea::placeholder { color:#7f938a; }
     body.dark .telegram-bubble { border:1px solid rgba(255,255,255,.06); }
-    @media (max-width: 1100px) { .layout, .grid, .section-grid, .summary, .three, .preview-grid { grid-template-columns:1fr; } .sidebar { position:static; } .toolbar { align-items:stretch; flex-direction:column; } .toolbar-right, .search-form { width:100%; } .search-form { min-width:0; } .search-form input { min-width:0; } }
+    @media (max-width: 1100px) { .layout, .grid, .section-grid, .summary, .three, .preview-grid, .command-tools { grid-template-columns:1fr; } .sidebar { position:static; } .toolbar { align-items:stretch; flex-direction:column; } .toolbar-right, .search-form { width:100%; } .search-form { min-width:0; } .search-form input { min-width:0; } }
     @media (max-width: 760px) { .wrap { padding:12px; } .hero, .card { border-radius:12px; padding:14px; } .inline { grid-template-columns:1fr; } table { display:block; overflow-x:auto; white-space:nowrap; } th, td { padding:8px 6px; } .metric h3 { font-size:22px; } input, select, textarea, button { min-height:42px; } .subnav, .toolbar-right { align-items:stretch; flex-direction:column; } .subnav a { text-align:center; } }
   </style>
 </head>
@@ -945,8 +957,8 @@
       </div>
       {% endif %}
       {% if active_section == 'categorias' or active_section == 'comandos' %}
-      <div class="section-grid" {% if active_section in ['buy', 'ajustes'] %}style="grid-template-columns:1fr;"{% endif %}>
-      <div class="stack" id="sec-categorias">
+      <div class="section-grid" {% if active_section == 'comandos' or active_section in ['buy', 'ajustes'] %}style="grid-template-columns:1fr;"{% endif %}>
+      <div class="stack {% if active_section == 'comandos' %}command-tools{% endif %}" id="sec-categorias">
         {% if active_section == 'categorias' %}
         <div class="card">
           <h2>Nueva Categoría</h2>
@@ -1118,7 +1130,8 @@
               {% endif %}
             </div>
           </div>
-          <table>
+          <div class="table-scroll">
+          <table class="commands-table">
             <thead><tr><th>Comando</th><th>Categoría</th><th>Validación</th><th>Costo</th><th>Estado</th><th>Editar</th></tr></thead>
             <tbody>
               {% for cmd in filtered_commands %}
@@ -1132,6 +1145,8 @@
                 <td>{{ cmd.cost }}</td>
                 <td>{% if cmd.is_active %}<span class="badge ok">Activo</span>{% else %}<span class="badge off">Inactivo</span>{% endif %}</td>
                 <td>
+                  <details class="command-edit">
+                    <summary>Editar</summary>
                   <form method="post" action="{{ url_for('admin_save_command') }}">
                     <input type="hidden" name="slug" value="{{ cmd.slug }}">
                     <div class="inline">
@@ -1178,6 +1193,7 @@
                     <input name="validation_invalid_message" value="{{ cmd.validation_invalid_message or '' }}" placeholder="Mensaje si está mal">
                     <button type="submit">Guardar</button>
                   </form>
+                  </details>
                 </td>
               </tr>
               {% endfor %}
@@ -1186,6 +1202,7 @@
               {% endif %}
             </tbody>
           </table>
+          </div>
         </div>
         {% endif %}
       </div>
