@@ -17,10 +17,8 @@ if os.path.exists(CONFIG_FILE_PATH):
     try:
         with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
             cfg = json.load(f)
-    except Exception as e:
-        print(f"⚠️ Error leyendo config.json: {e}")
-else:
-    print(f"⚠️ No se encontró {CONFIG_FILE_PATH}")
+    except Exception:
+        pass
 
 API_BASE = (
     os.environ.get("SPIDERSYN_API_BASE")
@@ -165,9 +163,12 @@ def _get_panel_settings():
 
 def _build_buy_text(bot_arroba: str, section: str = "all") -> str:
     groups = _get_buy_groups()
+    credit_items = sum(len(group.get("items") or []) for group in groups.get("credits", []))
+    day_items = sum(len(group.get("items") or []) for group in groups.get("days", []))
     parts = [
         "✨ <b>PLANES Y TARIFAS</b> ✨",
         f"⚡️ <i>By:</i> <b>{bot_arroba}</b>",
+        f"📦 Opciones activas: <code>{credit_items}</code> créditos · <code>{day_items}</code> días",
     ]
 
     show_credits = section in {"all", "credits"}
@@ -202,6 +203,8 @@ def _build_buy_text(bot_arroba: str, section: str = "all") -> str:
             parts.append("")
 
     parts.append("[⚠️] <b>IMPORTANTE</b> ➩ Antes de comprar leer los terminos y condiciones usa /terminos")
+    parts.append("")
+    parts.append("Toca un vendedor o dueño abajo para comprar.")
     return "\n".join(parts).strip()
 
 
@@ -232,6 +235,8 @@ def _build_buy_keyboard(settings: dict) -> InlineKeyboardMarkup:
 
     for i in range(0, len(buttons), 2):
         rows.append(buttons[i:i + 2])
+    if buttons:
+        rows.append([InlineKeyboardButton("Actualizar precios", callback_data="buy:all")])
     extra_buttons = []
     group_link = settings.get("GRUPO_LINK") or cfg.get("GRUPO_LINK")
     channel_link = settings.get("CANAL_LINK") or cfg.get("CANAL_LINK")

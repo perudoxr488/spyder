@@ -34,6 +34,7 @@ INTERNAL_API_KEY = (
     or CFG.get("TOKEN_BOT")
     or ""
 ).strip()
+MAX_MESSAGE = 3600
 
 
 def _fetch_catalog_prices():
@@ -71,18 +72,30 @@ async def precios_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     catalog_rows = _fetch_catalog_prices()
     if catalog_rows:
-        texto = ["💳 <b>PRECIOS DEL BOT</b>\n"]
+        pages = []
+        texto = ["💳 <b>PRECIOS DEL BOT</b>", f"🧩 <b>Total:</b> <code>{len(catalog_rows)}</code> comandos activos", ""]
         current = None
         for row in catalog_rows:
             if row["category"] != current:
                 current = row["category"]
                 texto.append(f"\n<b>{html.escape(current)}</b>")
-            texto.append(f"• <code>/{html.escape(row['slug'])}</code> → <code>{row['cost']}</code> créditos")
-        await msg.reply_text(
-            "\n".join(texto),
-            parse_mode="HTML",
-            reply_to_message_id=msg.message_id,
-        )
+            line = f"• <code>/{html.escape(row['slug'])}</code> → <code>{row['cost']}</code> créditos"
+            draft = "\n".join([*texto, line])
+            if len(draft) > MAX_MESSAGE:
+                pages.append("\n".join(texto))
+                texto = [f"💳 <b>PRECIOS DEL BOT</b> · continuación", f"\n<b>{html.escape(current)}</b>", line]
+            else:
+                texto.append(line)
+        if texto:
+            pages.append("\n".join(texto))
+        total_pages = len(pages)
+        for idx, page in enumerate(pages, start=1):
+            suffix = f"\n\n📖 Página <code>{idx}/{total_pages}</code>" if total_pages > 1 else ""
+            await msg.reply_text(
+                page + suffix,
+                parse_mode="HTML",
+                reply_to_message_id=msg.message_id if idx == 1 else None,
+            )
         return
 
     if not REQUEST_COMMANDS:

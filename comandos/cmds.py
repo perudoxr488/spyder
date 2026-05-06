@@ -14,6 +14,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE_PATH = os.path.join(BASE_DIR, "config.json")
 DB_PATH = db_path("multiplataforma.db")
 PAGE_SIZE = 5
+SEARCH_PAGE_SIZE = 8
 CFG = {}
 try:
     if os.path.exists(CONFIG_FILE_PATH):
@@ -370,6 +371,19 @@ def _kb_category_nav(category_slug: str, page: int, total_pages: int):
     ])
 
 
+def _kb_search_nav(query: str, page: int, total_pages: int):
+    safe_query = query[:48].replace(":", " ").strip()
+    prev_page = total_pages if page <= 1 else page - 1
+    next_page = 1 if page >= total_pages else page + 1
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("⬅️", callback_data=f"cmds_search_{prev_page}_{safe_query}"),
+            InlineKeyboardButton("🏠", callback_data="cmds_nav_home"),
+            InlineKeyboardButton("➡️", callback_data=f"cmds_search_{next_page}_{safe_query}"),
+        ]
+    ])
+
+
 def _home_caption(cfg: dict, user) -> str:
     bot_name = _bot_brand(cfg)
     nombre = html.escape(user.first_name or "Usuario")
@@ -420,27 +434,32 @@ def _category_caption(cfg: dict, category: dict, commands: list[dict], page: int
     return "\n".join(lines).rstrip()
 
 
-def _search_caption(cfg: dict, query: str, commands: list[dict]) -> str:
+def _search_caption(cfg: dict, query: str, commands: list[dict], page: int = 1) -> str:
     bot_name = _bot_brand(cfg)
+    total_pages = max(1, math.ceil(max(1, len(commands)) / SEARCH_PAGE_SIZE))
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * SEARCH_PAGE_SIZE
+    visible = commands[start:start + SEARCH_PAGE_SIZE]
     lines = [
         f"<b>{bot_name}</b> <i>BUSCADOR DE COMANDOS</i>",
         f"🔎 <b>BÚSQUEDA</b> ➾ <code>{html.escape(query)}</code>",
         f"🧩 <b>RESULTADOS</b> ➾ <code>{len(commands)}</code>",
+        f"📖 <b>PÁGINA</b> ➾ <code>{page}/{total_pages}</code>",
         "",
     ]
     if not commands:
         lines.append("No encontré comandos con esa búsqueda.")
         lines.append("Prueba por nombre, categoría o ejemplo de uso.")
         return "\n".join(lines)
-    for cmd in commands[:15]:
+    for cmd in visible:
         fallback = DEFAULT_DETAILS.get(cmd.get("slug"), {})
         usage = cmd.get("usage_hint") or fallback.get("usage_hint") or f"/{cmd.get('slug')}"
         desc = cmd.get("description") or fallback.get("description") or "Sin descripción."
         lines.append(f"• <code>{html.escape(usage)}</code> · <b>{html.escape(cmd.get('name') or cmd.get('slug'))}</b>")
         lines.append(f"  <i>{html.escape(desc)}</i>")
-    if len(commands) > 15:
+    if len(commands) > SEARCH_PAGE_SIZE:
         lines.append("")
-        lines.append(f"Mostrando 15 de {len(commands)} resultados. Afina la búsqueda para ver menos.")
+        lines.append("Usa las flechas para navegar o escribe una búsqueda más específica.")
     return "\n".join(lines)
 
 
@@ -478,9 +497,9 @@ async def cmds_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query:
         matches = _search_commands(query)
         await update.effective_message.reply_text(
-            _search_caption(cfg, query, matches),
+            _search_caption(cfg, query, matches, page=1),
             parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Menú", callback_data="cmds_nav_home")]]),
+            reply_markup=_kb_search_nav(query, 1, max(1, math.ceil(max(1, len(matches)) / SEARCH_PAGE_SIZE))),
             disable_web_page_preview=True,
             reply_to_message_id=update.effective_message.message_id,
         )
@@ -537,6 +556,25 @@ async def cmds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             _kb_category_nav(category_slug, page, total_pages),
             _get_menu_image(cfg),
             edit=True,
+        )
+        await query.answer()
+        return
+
+    if data.startswith("cmds_search_"):
+        payload = data.removeprefix("cmds_search_")
+        page_raw, _, query_text = payload.partition("_")
+        try:
+            page = max(1, int(page_raw or "1"))
+        except Exception:
+            page = 1
+        matches = _search_commands(query_text)
+        total_pages = max(1, math.ceil(max(1, len(matches)) / SEARCH_PAGE_SIZE))
+        page = min(page, total_pages)
+        await query.edit_message_text(
+            text=_search_caption(cfg, query_text, matches, page=page),
+            parse_mode="HTML",
+            reply_markup=_kb_search_nav(query_text, page, total_pages),
+            disable_web_page_preview=True,
         )
         await query.answer()
         return
