@@ -6,6 +6,7 @@ from urllib.error import HTTPError, URLError
 
 from telegram import InputFile, Update
 from telegram.ext import ContextTypes
+from comandos.bot_errors import api_error_text
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE_PATH = os.path.join(BASE_DIR, "config.json")
@@ -83,15 +84,7 @@ def _request(url: str, timeout: int = 20, as_bytes: bool = False):
 
 
 def _api_error_message(action: str, status: int, data) -> str:
-    raw = (data or {}).get("message") if isinstance(data, dict) else ""
-    detail = raw or "Railway/API no respondió correctamente."
-    if status == 599:
-        detail = "No se pudo conectar con Railway/API. Revisa que web esté online y API_BASE esté correcto."
-    elif status >= 500:
-        detail = f"Railway devolvió error {status}. Revisa Deploy Logs y la sección Sistema del panel."
-    elif status in {401, 403}:
-        detail = "La API rechazó la llave interna. Revisa SPIDERSYN_INTERNAL_API_KEY en web y worker."
-    return f"No se pudo {action}.\nCódigo: {status}\nDetalle: {detail}"
+    return api_error_text(action, status, data)
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -106,7 +99,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     st, data = _request(f"{API_BASE}/health", timeout=15)
     if st != 200 or not isinstance(data, dict):
-        await msg.reply_text(_api_error_message("consultar /status", st, data), reply_to_message_id=msg.message_id)
+        await msg.reply_text(_api_error_message("consultar /status", st, data), parse_mode="HTML", reply_to_message_id=msg.message_id)
         return
     storage = (data or {}).get("storage") or {}
     items = storage.get("items") or []
@@ -115,11 +108,20 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keys = metrics.get("keys") or {}
     solicitudes = metrics.get("solicitudes") or {}
     errores = metrics.get("errores") or {}
+    catalogo = metrics.get("catalogo") or {}
+    config_state = {
+        "api_base": "OK" if API_BASE else "FALTA",
+        "panel": "OK" if PANEL_URL else "FALTA",
+        "key": "OK" if INTERNAL_API_KEY else "FALTA",
+    }
     lines = [
         "<b>#SPIDERSYN ⇒ STATUS</b>",
         f"Web: <code>{st}</code> · {(data or {}).get('status', 'error')}",
         "Worker: <code>OK</code> · este comando respondió",
         f"Data dir: <code>{storage.get('data_dir', '—')}</code>",
+        f"API_BASE: <code>{API_BASE or 'NO CONFIG'}</code>",
+        f"Panel: <code>{PANEL_URL or 'NO CONFIG'}</code>",
+        f"Config: API <code>{config_state['api_base']}</code> · Panel <code>{config_state['panel']}</code> · Key <code>{config_state['key']}</code>",
         "",
         "<b>DB</b>",
     ]
@@ -137,6 +139,9 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "",
             "<b>Solicitudes</b>",
             f"Pendientes: <code>{solicitudes.get('pending', 0)}</code> · Resueltas: <code>{solicitudes.get('resolved', 0)}</code> · Fallidas: <code>{solicitudes.get('failed', 0)}</code>",
+            "",
+            "<b>Catálogo</b>",
+            f"Comandos: <code>{catalogo.get('commands', 0)}</code> · Activos: <code>{catalogo.get('active_commands', 0)}</code> · Categorías: <code>{catalogo.get('categories', 0)}</code> · /buy: <code>{catalogo.get('buy_packages', 0)}</code>",
             "",
             "<b>Errores</b>",
             f"15m: <code>{errores.get('ultimos_15m', 0)}</code> · 24h: <code>{errores.get('ultimos_24h', 0)}</code>",
@@ -169,7 +174,7 @@ async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     st, body = _request(f"{API_BASE}/internal/db-backup.zip", timeout=30, as_bytes=True)
     if st != 200 or not isinstance(body, (bytes, bytearray)):
-        await msg.reply_text(_api_error_message("crear backup", st, {}), reply_to_message_id=msg.message_id)
+        await msg.reply_text(_api_error_message("crear backup", st, {}), parse_mode="HTML", reply_to_message_id=msg.message_id)
         return
     bio = io.BytesIO(body)
     bio.name = "spidersyn-db-backup.zip"

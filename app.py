@@ -2158,6 +2158,7 @@ def get_health_metrics():
         "keys": {"total": 0, "disponibles": 0, "agotadas": 0, "canjes": 0},
         "solicitudes": {"pending": 0, "resolved": 0, "cancelled": 0, "failed": 0},
         "errores": {"ultimos_15m": 0, "ultimos_24h": 0},
+        "catalogo": {"categories": 0, "commands": 0, "active_commands": 0, "buy_packages": 0},
     }
     try:
         conn = get_conn(DB_PATH)
@@ -2168,6 +2169,14 @@ def get_health_metrics():
         metrics["usuarios"]["activos"] = int(cur.fetchone()[0] or 0)
         cur.execute("SELECT COUNT(*) FROM usuarios WHERE UPPER(COALESCE(estado, '')) = 'BANEADO'")
         metrics["usuarios"]["baneados"] = int(cur.fetchone()[0] or 0)
+        cur.execute("SELECT COUNT(*) FROM command_categories")
+        metrics["catalogo"]["categories"] = int(cur.fetchone()[0] or 0)
+        cur.execute("SELECT COUNT(*) FROM command_catalog")
+        metrics["catalogo"]["commands"] = int(cur.fetchone()[0] or 0)
+        cur.execute("SELECT COUNT(*) FROM command_catalog WHERE COALESCE(is_active, 1) = 1")
+        metrics["catalogo"]["active_commands"] = int(cur.fetchone()[0] or 0)
+        cur.execute("SELECT COUNT(*) FROM buy_packages WHERE COALESCE(is_active, 1) = 1")
+        metrics["catalogo"]["buy_packages"] = int(cur.fetchone()[0] or 0)
         conn.close()
     except Exception:
         pass

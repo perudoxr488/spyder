@@ -7,6 +7,7 @@ from urllib.error import HTTPError, URLError
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
+from comandos.bot_errors import api_error_text
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE_PATH = os.path.join(BASE_DIR, "config.json")
@@ -80,7 +81,7 @@ def _need_admin(update: Update) -> bool:
 
 
 def _err(st: int, data) -> str:
-    return f"Error API/Railway <code>{st}</code>: {html.escape(str((data or {}).get('message') or 'sin detalle'))}"
+    return api_error_text("operar comando admin", st, data)
 
 
 async def dm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
