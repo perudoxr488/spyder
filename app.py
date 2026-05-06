@@ -4818,6 +4818,32 @@ def admin_update_key():
     return redirect(url_for("admin_panel", section="keys", flash=msg))
 
 
+@app.route("/admin/keys/delete", methods=["POST"])
+def admin_delete_key():
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
+    if gate:
+        return gate
+    key = (request.form.get("key") or "").strip().upper()
+    if not key:
+        return redirect(url_for("admin_panel", section="keys", flash="Key inválida."))
+
+    init_keys_db()
+    conn = get_conn(KEYS_DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT key, tipo, cantidad, usos FROM keys WHERE key = ?", (key,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return redirect(url_for("admin_panel", section="keys", flash=f"Key {key} no encontrada."))
+    cur.execute("DELETE FROM redemptions WHERE key = ?", (key,))
+    deleted_redemptions = cur.rowcount
+    cur.execute("DELETE FROM keys WHERE key = ?", (key,))
+    conn.commit()
+    conn.close()
+    log_audit_event("keys.delete", key, f"tipo={row[1]}; cantidad={row[2]}; usos={row[3]}; redemptions={deleted_redemptions}")
+    return redirect(url_for("admin_panel", section="keys", flash=f"Key {key} eliminada."))
+
+
 @app.route("/admin/user/save", methods=["POST"])
 def admin_save_user():
     gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR", "SOPORTE")

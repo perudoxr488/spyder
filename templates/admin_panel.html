@@ -991,6 +991,10 @@
                   <button type="submit" name="action" value="set_uses">Guardar usos</button>
                   <button type="submit" name="action" value="revoke" class="danger">Revocar</button>
                 </form>
+                <form method="post" action="{{ url_for('admin_delete_key') }}" data-confirm="¿Eliminar la key {{ item.key }}? También se eliminarán sus canjes registrados.">
+                  <input type="hidden" name="key" value="{{ item.key }}">
+                  <button type="submit" class="danger">Eliminar key</button>
+                </form>
               </td>
             </tr>
             {% endfor %}
