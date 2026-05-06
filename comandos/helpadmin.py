@@ -31,7 +31,8 @@ def _is_admin(user_id: int) -> bool:
 
 
 def _brand() -> str:
-    return (CFG.get("BOT_NAME") or CFG.get("NAME") or "#SPIDERSYN").strip() or "#SPIDERSYN"
+    raw = (CFG.get("BOT_NAME") or CFG.get("NAME") or "#NEXORA").strip() or "#NEXORA"
+    return "#NEXORA" if raw.upper() in {"SPIDERSYN", "#SPIDERSYN"} else raw
 
 
 async def helpadmin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -115,7 +115,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "key": "OK" if INTERNAL_API_KEY else "FALTA",
     }
     lines = [
-        "<b>#SPIDERSYN ⇒ STATUS</b>",
+        "<b>#NEXORA ⇒ STATUS</b>",
         f"Web: <code>{st}</code> · {(data or {}).get('status', 'error')}",
         "Worker: <code>OK</code> · este comando respondió",
         f"Data dir: <code>{storage.get('data_dir', '—')}</code>",
@@ -177,7 +177,7 @@ async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(_api_error_message("crear backup", st, {}), parse_mode="HTML", reply_to_message_id=msg.message_id)
         return
     bio = io.BytesIO(body)
-    bio.name = "spidersyn-db-backup.zip"
+    bio.name = "nexora-db-backup.zip"
     await msg.reply_document(
         document=InputFile(bio, filename=bio.name),
         caption="Backup de DB generado desde Railway.",

@@ -28,7 +28,7 @@ if os.path.exists(CONFIG_FILE_PATH):
     try:
         with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
             cfg = json.load(f)
-        BOT_NAME = (cfg.get("BOT_NAME") or cfg.get("NAME") or "SpiderSyn").strip()
+        BOT_NAME = (cfg.get("BOT_NAME") or cfg.get("NAME") or "Nexora").strip()
     except Exception:
         BOT_NAME = ""
         cfg = {}
@@ -151,11 +151,11 @@ def _bot_brand() -> str:
         or BOT_NAME
         or cfg.get("BOT_NAME")
         or cfg.get("NAME")
-        or "#SPIDERSYN"
+        or "#NEXORA"
     )
-    raw = str(raw).strip() or "#SPIDERSYN"
-    if raw.upper() == "SPIDERSYN":
-        raw = "#SPIDERSYN"
+    raw = str(raw).strip() or "#NEXORA"
+    if raw.upper() in {"SPIDERSYN", "#SPIDERSYN"}:
+        raw = "#NEXORA"
     if "⇒" not in raw and "➾" not in raw:
         raw = f"{raw} ⇒"
     return raw

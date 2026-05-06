@@ -149,11 +149,11 @@ def _bot_brand(cfg: dict) -> str:
         or os.environ.get("SPIDERSYN_BOT_NAME")
         or cfg.get("BOT_NAME")
         or cfg.get("NAME")
-        or "#SPIDERSYN"
+        or "#NEXORA"
     )
-    raw = str(raw).strip() or "#SPIDERSYN"
-    if raw.upper() == "SPIDERSYN":
-        raw = "#SPIDERSYN"
+    raw = str(raw).strip() or "#NEXORA"
+    if raw.upper() in {"SPIDERSYN", "#SPIDERSYN"}:
+        raw = "#NEXORA"
     if "⇒" not in raw and "➾" not in raw:
         raw = f"{raw} ⇒"
     return raw

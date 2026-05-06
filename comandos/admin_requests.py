@@ -334,7 +334,7 @@ def _html(value) -> str:
 
 def _user_request_card(title: str, request_id: int, command: str, body: str, footer: str = "") -> str:
     lines = [
-        f"<b>#SPIDERSYN ⇒ {title}</b>",
+        f"<b>#NEXORA ⇒ {title}</b>",
         "",
         f"<b>Solicitud</b> ⇒ <code>#{int(request_id)}</code>",
         f"<b>Comando</b> ⇒ <code>/{_html(command)}</code>",
@@ -905,7 +905,7 @@ async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     await message.reply_text(
         "\n".join(
             [
-                "<b>#SPIDERSYN ⇒ SOLICITUD RECIBIDA</b>",
+                "<b>#NEXORA ⇒ SOLICITUD RECIBIDA</b>",
                 "",
                 f"<b>Solicitud</b> ⇒ <code>#{request_id}</code>",
                 f"<b>Comando</b> ⇒ <code>/{_html(command)}</code>",

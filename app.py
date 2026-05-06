@@ -18,6 +18,7 @@ from urllib import parse as _urlparse
 from urllib import request as _urlreq
 from flask_cors import CORS, cross_origin
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 from storage import db_path, get_data_dir
 
 DB_PATH = db_path("multiplataforma.db")
@@ -353,7 +354,7 @@ DEFAULT_BUY_PACKAGES = [
 ]
 
 DEFAULT_PANEL_SETTINGS = [
-    ("BOT_NAME", CFG.get("BOT_NAME") or CFG.get("NAME") or "#SPIDERSYN ⇒"),
+    ("BOT_NAME", CFG.get("BOT_NAME") or CFG.get("NAME") or "#NEXORA ⇒"),
     ("BT_OWNER", CFG.get("BT_OWNER") or "OWNER"),
     ("OWNER_LINK", CFG.get("OWNER_LINK") or ""),
     ("BT_CANAL", CFG.get("BT_CANAL") or "CANAL"),
@@ -486,6 +487,17 @@ def init_panel_settings_db():
             ON CONFLICT(key) DO NOTHING
             """,
             (key, value),
+        )
+    cur.execute("SELECT value FROM panel_settings WHERE key = 'BOT_NAME'")
+    row = cur.fetchone()
+    current_brand = str(row[0] if row else "").strip().upper()
+    if current_brand in {"", "#SPIDERSYN", "#SPIDERSYN ⇒", "SPIDERSYN", "SPIDERSYN ⇒"}:
+        cur.execute(
+            """
+            INSERT INTO panel_settings (key, value)
+            VALUES ('BOT_NAME', '#NEXORA ⇒')
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """
         )
     conn.commit()
     conn.close()
@@ -653,7 +665,7 @@ def log_error_event(exc: Exception):
         if recent_errors >= 3 and now_ts - _ERROR_NOTIFY_TS > 300:
             _ERROR_NOTIFY_TS = now_ts
             alert = (
-                "<b>#SPIDERSYN ⇒ ALERTA 500</b>\n\n"
+                f"<b>{html_escape(panel_brand())} ALERTA 500</b>\n\n"
                 f"Errores recientes: <code>{recent_errors}</code> en 15 min\n"
                 f"Ruta: <code>{html_escape(request.path)}</code>\n"
                 f"Mensaje: <code>{html_escape(str(exc)[:500])}</code>"
@@ -671,6 +683,17 @@ def html_escape(value) -> str:
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
+
+
+def panel_brand(default: str = "#NEXORA ⇒") -> str:
+    try:
+        raw = get_panel_setting("BOT_NAME", default)
+    except Exception:
+        raw = default
+    raw = str(raw or default).strip()
+    if raw.upper() in {"#SPIDERSYN", "#SPIDERSYN ⇒", "SPIDERSYN", "SPIDERSYN ⇒"}:
+        raw = default
+    return raw or default
 
 
 @app.errorhandler(Exception)
@@ -1436,7 +1459,7 @@ def send_request_template_from_panel(request_id: int, template_key: str, resolve
             return False, f"Solicitud #{request_id} no está pendiente."
         text = str(template.get("text") or "").strip()
         user_text = (
-            f"<b>#SPIDERSYN ⇒ RESPUESTA A SOLICITUD #{request_id}</b>\n\n"
+            f"<b>{html_escape(panel_brand())} RESPUESTA A SOLICITUD #{request_id}</b>\n\n"
             f"Comando: <code>/{html_escape(row[2] or '')}</code>\n\n"
             f"{html_escape(text)}"
         )
@@ -1689,7 +1712,7 @@ def update_request_status_from_panel(request_id: int, action: str, note: str = "
                 "failed": "marcada como fallida",
             }
             user_text = (
-                "<b>#SPIDERSYN ⇒ SOLICITUD ACTUALIZADA</b>\n\n"
+                f"<b>{html_escape(panel_brand())} SOLICITUD ACTUALIZADA</b>\n\n"
                 f"Solicitud: <code>#{request_id}</code>\n"
                 f"Comando: <code>/{html_escape(row[2] or '')}</code>\n"
                 f"Estado: <code>{html_escape(labels.get(new_status, new_status))}</code>\n"
@@ -1870,6 +1893,8 @@ def _date_bounds(date_from: str = "", date_to: str = ""):
 
 PURCHASE_STATUSES = {"PENDIENTE", "PAGADA", "ENTREGADA", "CANCELADA"}
 PANEL_ROLES = {"FUNDADOR", "CO-FUNDADOR", "SELLER", "SOPORTE"}
+VISUAL_IMAGE_KEYS = {"FT_BUY", "FT_CMDS", "FT_CMDSADMIN", "FT_START"}
+ALLOWED_VISUAL_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif"}
 PANEL_SECTION_ACCESS = {
     "resumen": PANEL_ROLES,
     "buscar": PANEL_ROLES,
@@ -2250,12 +2275,48 @@ def backups_dir() -> str:
     return path
 
 
+def panel_assets_dir() -> str:
+    path = os.path.join(get_data_dir(), "panel_assets")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def public_base_url() -> str:
+    configured = (
+        os.environ.get("SPIDERSYN_PANEL_URL")
+        or os.environ.get("PUBLIC_URL")
+        or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+        or ""
+    ).strip()
+    if configured:
+        if not configured.startswith(("http://", "https://")):
+            configured = "https://" + configured
+        return configured.rstrip("/")
+    return request.url_root.rstrip("/")
+
+
+def is_allowed_visual_upload(filename: str) -> bool:
+    ext = os.path.splitext(filename or "")[1].lower().lstrip(".")
+    return ext in ALLOWED_VISUAL_EXTENSIONS
+
+
+@app.route("/assets/panel/<path:filename>", methods=["GET"])
+def panel_public_asset(filename: str):
+    safe_name = secure_filename(os.path.basename(filename))
+    if not safe_name or safe_name != os.path.basename(filename):
+        return jsonify({"status": "error", "message": "Archivo inválido"}), 400
+    path = os.path.join(panel_assets_dir(), safe_name)
+    if not os.path.exists(path):
+        return jsonify({"status": "error", "message": "Archivo no encontrado"}), 404
+    return send_file(path)
+
+
 def get_daily_backups(limit: int = 20):
     try:
         folder = backups_dir()
         items = []
         for name in os.listdir(folder):
-            if not (name.startswith("spidersyn-auto-") and name.endswith(".zip")):
+            if not (name.startswith(("spidersyn-auto-", "nexora-auto-")) and name.endswith(".zip")):
                 continue
             path = os.path.join(folder, name)
             if not os.path.isfile(path):
@@ -2284,7 +2345,7 @@ def create_db_backup_file(path: str):
 def ensure_daily_backup(force: bool = False):
     folder = backups_dir()
     today = now_utc().strftime("%Y%m%d")
-    backup_name = f"spidersyn-auto-{today}.zip"
+    backup_name = f"nexora-auto-{today}.zip"
     backup_path = os.path.join(folder, backup_name)
     if force or not os.path.exists(backup_path):
         tmp_path = backup_path + ".tmp"
@@ -3861,7 +3922,7 @@ def hist_venta_id():
 
 @app.route("/")
 def index():
-    return {"status": "ok", "message": "SpiderSyn API online"}
+    return {"status": "ok", "message": "Nexora API online"}
 
 
 @app.route("/health", methods=["GET"])
@@ -3874,7 +3935,7 @@ def health():
     return jsonify(
         {
             "status": "ok" if ok else "warn",
-            "message": "SpiderSyn healthcheck",
+            "message": "Nexora healthcheck",
             "storage": storage,
             "metrics": metrics,
             "time": now_iso(),
@@ -4405,6 +4466,30 @@ def admin_save_setting():
     return redirect(url_for("admin_panel", section="ajustes", flash=f"Ajuste {key} guardado."))
 
 
+@app.route("/admin/setting/upload", methods=["POST"])
+def admin_upload_visual_setting():
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
+    if gate:
+        return gate
+    key = (request.form.get("key") or "").strip().upper()
+    uploaded = request.files.get("image")
+    if key not in VISUAL_IMAGE_KEYS:
+        return redirect(url_for("admin_panel", section="ajustes", flash="Ajuste visual inválido."))
+    if not uploaded or not uploaded.filename:
+        return redirect(url_for("admin_panel", section="ajustes", flash="Selecciona una imagen."))
+    original = secure_filename(uploaded.filename)
+    if not is_allowed_visual_upload(original):
+        return redirect(url_for("admin_panel", section="ajustes", flash="Formato inválido. Usa JPG, PNG, WEBP o GIF."))
+    ext = os.path.splitext(original)[1].lower()
+    filename = f"{key.lower()}-{now_utc().strftime('%Y%m%d%H%M%S')}{ext}"
+    path = os.path.join(panel_assets_dir(), filename)
+    uploaded.save(path)
+    public_url = f"{public_base_url()}{url_for('panel_public_asset', filename=filename)}"
+    save_panel_setting_value(key, public_url)
+    log_audit_event("setting.upload", key, filename)
+    return redirect(url_for("admin_panel", section="ajustes", flash=f"Imagen subida para {key}."))
+
+
 @app.route("/admin/request-template/save", methods=["POST"])
 def admin_save_request_template():
     gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR", "SOPORTE")
@@ -4486,7 +4571,7 @@ def admin_export_requests_csv():
         limit=10000,
     )
     return _csv_response(
-        "spidersyn-solicitudes.csv",
+        "nexora-solicitudes.csv",
         rows,
         [
             "id", "user_id", "username", "command", "payload", "status", "cost",
@@ -4517,7 +4602,7 @@ def admin_export_requests_json():
         limit=10000,
     )
     return _json_download_response(
-        "spidersyn-solicitudes.json",
+        "nexora-solicitudes.json",
         {"exported_at": now_iso(), "filters": filters, "total": len(rows), "data": rows},
     )
 
@@ -4531,7 +4616,7 @@ def admin_user_message():
     text = (request.form.get("message") or "").strip()
     if not id_tg or not text:
         return redirect(url_for("admin_panel", section="usuario", uid=id_tg, flash="Falta ID o mensaje."))
-    ok = send_telegram_message_sync(id_tg, f"<b>#SPIDERSYN ⇒ MENSAJE</b>\n\n{html_escape(text)}")
+    ok = send_telegram_message_sync(id_tg, f"<b>{html_escape(panel_brand())} MENSAJE</b>\n\n{html_escape(text)}")
     log_audit_event("user.message", id_tg, f"sent={ok}; len={len(text)}")
     flash = "Mensaje enviado." if ok else "No se pudo enviar el mensaje. Quizá el usuario bloqueó el bot."
     return redirect(url_for("admin_panel", section="usuario", uid=id_tg, flash=flash))
@@ -4721,7 +4806,7 @@ def admin_export_purchases_csv():
         limit=10000,
         exact_vendor=bool(seller_vendor),
     )
-    return _csv_response("spidersyn-compras.csv", rows, ["ID", "ID_TG", "VENDEDOR", "FECHA", "COMPRO", "ESTADO", "NOTAS", "COMPROBANTE"])
+    return _csv_response("nexora-compras.csv", rows, ["ID", "ID_TG", "VENDEDOR", "FECHA", "COMPRO", "ESTADO", "NOTAS", "COMPROBANTE"])
 
 
 @app.route("/admin/export/compras.json", methods=["GET"])
@@ -4749,7 +4834,7 @@ def admin_export_purchases_json():
         exact_vendor=bool(seller_vendor),
     )
     return _json_download_response(
-        "spidersyn-compras.json",
+        "nexora-compras.json",
         {"exported_at": now_iso(), "filters": filters, "total": len(rows), "data": rows},
     )
 
@@ -4846,7 +4931,7 @@ def admin_export_history_csv():
         q=request.args.get("history_q", ""),
         limit=10000,
     )
-    return _csv_response("spidersyn-historial.csv", rows, ["ID", "ID_TG", "consulta", "valor", "fecha", "plataforma"])
+    return _csv_response("nexora-historial.csv", rows, ["ID", "ID_TG", "consulta", "valor", "fecha", "plataforma"])
 
 
 @app.route("/admin/export/historial.json", methods=["GET"])
@@ -4872,7 +4957,7 @@ def admin_export_history_json():
         limit=10000,
     )
     return _json_download_response(
-        "spidersyn-historial.json",
+        "nexora-historial.json",
         {"exported_at": now_iso(), "filters": filters, "total": len(rows), "data": rows},
     )
 
@@ -4889,7 +4974,7 @@ def admin_export_keys_csv():
         limit=10000,
     )
     return _csv_response(
-        "spidersyn-keys.csv",
+        "nexora-keys.csv",
         rows,
         ["key", "tipo", "cantidad", "usos", "canjes", "creador_id", "fecha_creacion"],
     )
@@ -4908,7 +4993,7 @@ def admin_export_keys_json():
     rows = get_key_items(q=filters["q"], tipo=filters["tipo"], status=filters["status"], limit=10000)
     redemptions = get_key_redemptions(limit=10000)
     return _json_download_response(
-        "spidersyn-keys.json",
+        "nexora-keys.json",
         {"exported_at": now_iso(), "filters": filters, "total": len(rows), "data": rows, "redemptions": redemptions},
     )
 
@@ -4940,7 +5025,7 @@ def admin_download_daily_backup(filename: str):
     if gate:
         return gate
     safe_name = os.path.basename(filename)
-    if safe_name != filename or not (safe_name.startswith("spidersyn-auto-") and safe_name.endswith(".zip")):
+    if safe_name != filename or not (safe_name.startswith(("spidersyn-auto-", "nexora-auto-")) and safe_name.endswith(".zip")):
         return jsonify({"status": "error", "message": "Archivo inválido"}), 400
     path = os.path.join(backups_dir(), safe_name)
     if not os.path.exists(path):
@@ -5067,7 +5152,7 @@ def admin_save_panel_account():
 
 def build_db_backup_response():
     buffer = io.BytesIO()
-    temp_path = os.path.join(get_data_dir(), f"spidersyn-manual-{now_utc().strftime('%Y%m%d%H%M%S')}.zip.tmp")
+    temp_path = os.path.join(get_data_dir(), f"nexora-manual-{now_utc().strftime('%Y%m%d%H%M%S')}.zip.tmp")
     try:
         create_db_backup_file(temp_path)
         with open(temp_path, "rb") as f:
@@ -5081,7 +5166,7 @@ def build_db_backup_response():
     return Response(
         buffer.getvalue(),
         mimetype="application/zip",
-        headers={"Content-Disposition": "attachment; filename=spidersyn-db-backup.zip"},
+        headers={"Content-Disposition": "attachment; filename=nexora-db-backup.zip"},
     )
 
 
@@ -5285,7 +5370,7 @@ def admin_export_panel():
     return Response(
         body,
         mimetype="application/json",
-        headers={"Content-Disposition": "attachment; filename=spidersyn-panel-backup.json"},
+        headers={"Content-Disposition": "attachment; filename=nexora-panel-backup.json"},
     )
 
 

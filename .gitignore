@@ -6,6 +6,8 @@ __pycache__/
 *.db
 *.sqlite
 *.sqlite3
+backups/
+panel_assets/
 spidersyn-panel-restore.json
 
 config.json

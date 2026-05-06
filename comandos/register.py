@@ -19,7 +19,7 @@ if os.path.exists(CONFIG_FILE_PATH):
     try:
         with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
             cfg = json.load(f)
-        BOT_NAME = (cfg.get("BOT_NAME") or cfg.get("NAME") or "SpiderSyn").strip()
+        BOT_NAME = (cfg.get("BOT_NAME") or cfg.get("NAME") or "Nexora").strip()
     except Exception:
         BOT_NAME = ""
         cfg = {}

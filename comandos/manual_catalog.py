@@ -19,7 +19,9 @@ try:
 except Exception:
     CFG = {}
 
-BOT_NAME = (CFG.get("BOT_NAME") or CFG.get("NAME") or "BOT").strip()
+BOT_NAME = (CFG.get("BOT_NAME") or CFG.get("NAME") or "#NEXORA").strip()
+if BOT_NAME.upper() in {"SPIDERSYN", "#SPIDERSYN"}:
+    BOT_NAME = "#NEXORA"
 CMDS = CFG.get("CMDS", {}) or {}
 ERRS = CFG.get("ERRORCONSULTA", {}) or {}
 

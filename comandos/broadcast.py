@@ -78,7 +78,7 @@ def _fetch_json(url: str, timeout: int = 20):
 
 def _usage() -> str:
     return (
-        "<b>#SPIDERSYN ⇒ MENSAJE GLOBAL</b>\n\n"
+        "<b>#NEXORA ⇒ MENSAJE GLOBAL</b>\n\n"
         "Uso:\n"
         "<code>/global Hola a todos</code>\n"
         "<code>/global --all Hola incluyendo baneados</code>\n\n"
@@ -188,7 +188,7 @@ async def global_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "created": asyncio.get_running_loop().time(),
     }
     preview_lines = [
-        "<b>#SPIDERSYN ⇒ PREVIEW GLOBAL</b>",
+        "<b>#NEXORA ⇒ PREVIEW GLOBAL</b>",
         "",
         f"Alcance: <code>{html.escape(scope)}</code>",
         f"Usuarios destino: <code>{len(users)}</code>",
@@ -278,7 +278,7 @@ async def global_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     details = ", ".join(f"{html.escape(k)}: {v}" for k, v in sorted(failed_reasons.items())) or "—"
     result = (
-        "<b>#SPIDERSYN ⇒ GLOBAL FINALIZADO</b>\n\n"
+        "<b>#NEXORA ⇒ GLOBAL FINALIZADO</b>\n\n"
         f"Alcance: <code>{html.escape(scope)}</code>\n"
         f"Usuarios: <code>{len(users)}</code>\n"
         f"Enviados: <code>{ok}</code>\n"

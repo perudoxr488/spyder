@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 CONFIG_FILE_PATH = "config.json"
 
 def _get_bot_name() -> str:
-    bot_name = "[#TvssyBot] ➾"
+    bot_name = "#NEXORA ⇒"
     if os.path.exists(CONFIG_FILE_PATH):
         try:
             with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
@@ -15,7 +15,7 @@ def _get_bot_name() -> str:
             # En tu config sueles tener algo como "<code>[</code>#TUSSYBOT<code>]</code> ➾"
             # Para evitar etiquetas HTML aquí, limpiamos si es necesario
             raw = (cfg.get("BOT_NAME") or "").strip()
-            if raw:
+            if raw and raw.upper() not in {"SPIDERSYN", "#SPIDERSYN", "#SPIDERSYN ⇒"}:
                 # Si viene con etiquetas HTML, quítalas para este texto plano
                 # (dejamos solo el texto visible aproximado)
                 bot_name = raw.replace("<code>", "").replace("</code>", "")

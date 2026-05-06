@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>SpiderSyn Panel</title>
+  <title>Nexora Panel</title>
   <style>
     :root { color-scheme: light; --bg:#f5f3ee; --bg-grad-1:#f7f1e8; --bg-grad-2:#efe7d8; --ink:#1e1d1a; --muted:#6a655c; --card:#fffdf8; --surface:#fff8ef; --surface-2:#f0e6d6; --line:#ddd2bf; --accent:#1f6f5f; --accent-2:#d99b38; --danger:#b64a3c; --accent-3:#325f9b; --preview-bg-1:#d9ecff; --preview-bg-2:#c8e2fb; --preview-line:#b8d2ea; --bubble-bg:#ffffff; --bubble-ink:#1b1f22; --flash-bg:#e7f4ed; --flash-line:#b9dec8; --input-bg:#fffdfa; --shadow-soft:0 10px 30px rgba(79,54,24,.08); --shadow-card:0 10px 20px rgba(79,54,24,.06); }
     body.dark { color-scheme: dark; --bg:#09110f; --bg-grad-1:#07110e; --bg-grad-2:#10201b; --ink:#f7f1e7; --muted:#9fb0a8; --card:#101917; --surface:#17221f; --surface-2:#1d2a26; --line:#273734; --accent:#55d4b1; --accent-2:#f0b45b; --danger:#e17368; --accent-3:#8bb5ff; --preview-bg-1:#0d2331; --preview-bg-2:#163447; --preview-line:#285166; --bubble-bg:#1a313a; --bubble-ink:#f6efe4; --flash-bg:#122c22; --flash-line:#275141; --input-bg:#0d1614; --shadow-soft:0 18px 48px rgba(0,0,0,.32); --shadow-card:0 16px 34px rgba(0,0,0,.28); }
@@ -1377,12 +1377,22 @@
           <p class="small">Controla desde aquí imágenes y enlaces que usan `/start`, `/buy`, `/cmds`, `/cmdsadmin` y otras pantallas.</p>
           <div class="three">
             {% for key in ['BOT_NAME','BT_OWNER','OWNER_LINK','BT_CANAL','CANAL_LINK','BT_GRUPO','GRUPO_LINK','BT_SELLER','SELLER_LINK','BT_SELLER1','SELLER_LINK1','BT_SELLER2','SELLER_LINK2','BT_SELLER3','SELLER_LINK3','FT_BUY','FT_CMDS','FT_CMDSADMIN','FT_START'] %}
-            <form class="mini-card" method="post" action="{{ url_for('admin_save_setting') }}">
-              <input type="hidden" name="key" value="{{ key }}">
-              <label>{{ key }}</label>
-              <input name="value" value="{{ settings.get(key, '') }}" placeholder="{{ key }}">
-              <button type="submit">Guardar</button>
-            </form>
+            <div class="mini-card">
+              <form method="post" action="{{ url_for('admin_save_setting') }}">
+                <input type="hidden" name="key" value="{{ key }}">
+                <label>{{ key }}</label>
+                <input name="value" value="{{ settings.get(key, '') }}" placeholder="{{ key }}">
+                <button type="submit">Guardar</button>
+              </form>
+              {% if key in ['FT_BUY','FT_CMDS','FT_CMDSADMIN','FT_START'] %}
+              <form method="post" action="{{ url_for('admin_upload_visual_setting') }}" enctype="multipart/form-data" style="margin-top:10px;">
+                <input type="hidden" name="key" value="{{ key }}">
+                <label>Subir imagen directa</label>
+                <input type="file" name="image" accept="image/png,image/jpeg,image/webp,image/gif" required>
+                <button type="submit" class="secondary">Subir y usar</button>
+              </form>
+              {% endif %}
+            </div>
             {% endfor %}
           </div>
         </div>
@@ -1805,11 +1815,11 @@
   </div>
 </body>
 <script>
-    const storedTheme = localStorage.getItem('spidersyn-panel-theme');
+    const storedTheme = localStorage.getItem('nexora-panel-theme') || localStorage.getItem('spidersyn-panel-theme');
     if (storedTheme === 'dark') document.body.classList.add('dark');
   function toggleTheme() {
       document.body.classList.toggle('dark');
-      localStorage.setItem('spidersyn-panel-theme', document.body.classList.contains('dark') ? 'dark' : 'light');
+      localStorage.setItem('nexora-panel-theme', document.body.classList.contains('dark') ? 'dark' : 'light');
     }
     if ("{{ active_section }}" === "solicitudes") {
       setTimeout(() => window.location.reload(), 15000);

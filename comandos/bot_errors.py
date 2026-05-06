@@ -24,7 +24,7 @@ def api_error_text(action: str, status: int, data=None) -> str:
         hint = raw or "Intenta de nuevo y revisa /status."
     detail = raw if raw and raw != hint else hint
     return (
-        f"<b>#SPIDERSYN ⇒ ERROR API</b>\n"
+        f"<b>#NEXORA ⇒ ERROR API</b>\n"
         f"Acción: <code>{html.escape(action)}</code>\n"
         f"Código: <code>{status}</code>\n"
         f"Estado: {html.escape(title)}\n"

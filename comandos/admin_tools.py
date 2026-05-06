@@ -97,7 +97,7 @@ async def dm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await context.bot.send_message(
             chat_id=int(target_id),
-            text=f"<b>#SPIDERSYN ⇒ MENSAJE</b>\n\n{html.escape(text)}",
+            text=f"<b>#NEXORA ⇒ MENSAJE</b>\n\n{html.escape(text)}",
             parse_mode="HTML",
             disable_web_page_preview=True,
         )
@@ -174,7 +174,7 @@ async def user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     profile = data["data"]
     user = profile.get("user") or {}
     lines = [
-        "<b>#SPIDERSYN ⇒ PERFIL ADMIN</b>",
+        "<b>#NEXORA ⇒ PERFIL ADMIN</b>",
         f"ID: <code>{html.escape(str(user.get('id_tg')))}</code>",
         f"Rol: <code>{html.escape(str(user.get('rol_tg') or 'FREE'))}</code>",
         f"Plan: <code>{html.escape(str(user.get('plan') or 'FREE'))}</code>",
@@ -197,7 +197,7 @@ async def ventas_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(_err(st, data), parse_mode="HTML", reply_to_message_id=msg.message_id)
         return
     payload = data.get("data") or {}
-    lines = ["<b>#SPIDERSYN ⇒ VENTAS</b>", ""]
+    lines = ["<b>#NEXORA ⇒ VENTAS</b>", ""]
     for item in payload.get("ventas_por_periodo") or []:
         lines.append(f"{html.escape(item.get('label'))}: <code>{item.get('total', 0)}</code> · Cred: <code>{item.get('creditos', 0)}</code> · Días: <code>{item.get('dias', 0)}</code>")
     lines.append("")
@@ -218,7 +218,7 @@ async def errores_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     metrics = data.get("metrics") or {}
     lines = [
-        "<b>#SPIDERSYN ⇒ ERRORES</b>",
+        "<b>#NEXORA ⇒ ERRORES</b>",
         f"15m: <code>{metrics.get('ultimos_15m', 0)}</code> · 24h: <code>{metrics.get('ultimos_24h', 0)}</code>",
         "",
     ]
