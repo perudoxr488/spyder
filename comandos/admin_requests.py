@@ -138,7 +138,10 @@ def _request_row_to_payload(row) -> dict:
         attachment_file_unique_id,
         attachment_file_name,
         attachment_caption,
-    ) = row[:19]
+        origin_chat_id,
+        origin_message_id,
+        origin_chat_type,
+    ) = row[:22]
     return {
         "id": request_id,
         "user_id": user_id,
@@ -159,6 +162,9 @@ def _request_row_to_payload(row) -> dict:
         "attachment_file_unique_id": attachment_file_unique_id or "",
         "attachment_file_name": attachment_file_name or "",
         "attachment_caption": attachment_caption or "",
+        "origin_chat_id": origin_chat_id,
+        "origin_message_id": origin_message_id,
+        "origin_chat_type": origin_chat_type or "",
     }
 
 
@@ -195,7 +201,8 @@ def sync_recent_requests_to_api(limit: int = 300):
             """
             SELECT id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count,
                    created_at, resolved_at, resolved_by, resolution_note,
-                   attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
+                   attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption,
+                   origin_chat_id, origin_message_id, origin_chat_type
             FROM requests
             ORDER BY id DESC
             LIMIT ?
@@ -234,7 +241,10 @@ def init_db():
             attachment_file_id TEXT DEFAULT '',
             attachment_file_unique_id TEXT DEFAULT '',
             attachment_file_name TEXT DEFAULT '',
-            attachment_caption TEXT DEFAULT ''
+            attachment_caption TEXT DEFAULT '',
+            origin_chat_id INTEGER,
+            origin_message_id INTEGER,
+            origin_chat_type TEXT DEFAULT ''
         )
         """
     )
@@ -265,9 +275,12 @@ def init_db():
         c.execute("ALTER TABLE requests ADD COLUMN resolved_by INTEGER")
     if "resolution_note" not in columns:
         c.execute("ALTER TABLE requests ADD COLUMN resolution_note TEXT")
-    for col_name in ("attachment_type", "attachment_file_id", "attachment_file_unique_id", "attachment_file_name", "attachment_caption"):
+    for col_name in ("attachment_type", "attachment_file_id", "attachment_file_unique_id", "attachment_file_name", "attachment_caption", "origin_chat_type"):
         if col_name not in columns:
             c.execute(f"ALTER TABLE requests ADD COLUMN {col_name} TEXT DEFAULT ''")
+    for col_name in ("origin_chat_id", "origin_message_id"):
+        if col_name not in columns:
+            c.execute(f"ALTER TABLE requests ADD COLUMN {col_name} INTEGER")
     c.execute("PRAGMA table_info(request_templates)")
     template_columns = {row[1] for row in c.fetchall()}
     if "command" not in template_columns:
@@ -294,7 +307,8 @@ def _get_request_by_id(cursor, request_id: int):
         """
         SELECT id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count,
                created_at, resolved_at, resolved_by, resolution_note,
-               attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
+               attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption,
+               origin_chat_id, origin_message_id, origin_chat_type
         FROM requests
         WHERE id=?
         """,
@@ -308,7 +322,8 @@ def _get_request_by_admin_message(cursor, admin_msg_id: int):
         """
         SELECT id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count,
                created_at, resolved_at, resolved_by, resolution_note,
-               attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
+               attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption,
+               origin_chat_id, origin_message_id, origin_chat_type
         FROM requests
         WHERE admin_msg_id=?
         """,
@@ -319,6 +334,30 @@ def _get_request_by_admin_message(cursor, admin_msg_id: int):
 
 def _target_label(username, user_id) -> str:
     return f"@{username}" if username else str(user_id)
+
+
+def _delivery_target(row) -> tuple[int, int | None]:
+    user_id = row[1]
+    origin_chat_id = row[19] if len(row) > 19 else None
+    origin_message_id = row[20] if len(row) > 20 else None
+    try:
+        chat_id = int(origin_chat_id) if origin_chat_id not in (None, "") else int(user_id)
+    except Exception:
+        chat_id = user_id
+    try:
+        reply_to = int(origin_message_id) if origin_message_id not in (None, "") else None
+    except Exception:
+        reply_to = None
+    return chat_id, reply_to
+
+
+async def _send_delivery_message(context: ContextTypes.DEFAULT_TYPE, row, text: str, *, parse_mode: str = "HTML"):
+    chat_id, reply_to = _delivery_target(row)
+    kwargs = {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}
+    if reply_to:
+        kwargs["reply_to_message_id"] = reply_to
+        kwargs["allow_sending_without_reply"] = True
+    await context.bot.send_message(**kwargs)
 
 
 def _trim(text: str | None, limit: int = 90) -> str:
@@ -491,6 +530,15 @@ def _build_delivery_caption(intro: str, caption: str | None = None, limit: int =
     return text[: limit - 1] + "…"
 
 
+def _delivery_kwargs(row) -> dict:
+    chat_id, reply_to = _delivery_target(row)
+    kwargs = {"chat_id": chat_id}
+    if reply_to:
+        kwargs["reply_to_message_id"] = reply_to
+        kwargs["allow_sending_without_reply"] = True
+    return kwargs
+
+
 def _resolve_template(template_key: str) -> str | None:
     entry = get_quick_templates().get((template_key or "").strip().lower())
     return entry.get("text") if entry else None
@@ -659,11 +707,7 @@ async def _send_request_reply(context: ContextTypes.DEFAULT_TYPE, admin_id: int,
     if _should_charge(reply_text):
         charged = _maybe_charge_request(c, user_id, cost, int(charged or 0))
 
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=_user_request_card("RESPUESTA", request_id, command, reply_text),
-        parse_mode="HTML",
-    )
+    await _send_delivery_message(context, row, _user_request_card("RESPUESTA", request_id, command, reply_text))
     _mark_request_delivery(c, request_id, admin_id, reply_text, charged=int(charged or 0), resolved=False)
     conn.commit()
     conn.close()
@@ -682,11 +726,7 @@ async def _send_request_reply_free(context: ContextTypes.DEFAULT_TYPE, admin_id:
     if status != "pending":
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=_user_request_card("RESPUESTA SIN COBRO", request_id, command, reply_text, "No se descontaron créditos."),
-        parse_mode="HTML",
-    )
+    await _send_delivery_message(context, row, _user_request_card("RESPUESTA SIN COBRO", request_id, command, reply_text, "No se descontaron créditos."))
     _mark_request_delivery(c, request_id, admin_id, f"[sin_cobro] {reply_text}", charged=int(charged or 0), resolved=False)
     conn.commit()
     conn.close()
@@ -708,11 +748,7 @@ async def _done_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int,
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
 
     final_note = note or "✅ Tu solicitud fue completada por el equipo NEXORA."
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=_user_request_card("SOLICITUD FINALIZADA", request_id, command, final_note),
-        parse_mode="HTML",
-    )
+    await _send_delivery_message(context, row, _user_request_card("SOLICITUD FINALIZADA", request_id, command, final_note))
     _update_request_status(c, request_id, "resolved", admin_id, _append_note(resolution_note, final_note))
     conn.commit()
     conn.close()
@@ -734,11 +770,7 @@ async def _close_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
 
     final_note = note or "Tu solicitud fue cerrada por el administrador."
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=_user_request_card("SOLICITUD CERRADA", request_id, command, final_note, "No se descontaron créditos."),
-        parse_mode="HTML",
-    )
+    await _send_delivery_message(context, row, _user_request_card("SOLICITUD CERRADA", request_id, command, final_note, "No se descontaron créditos."))
     _update_request_status(c, request_id, "cancelled", admin_id, final_note)
     conn.commit()
     conn.close()
@@ -760,11 +792,7 @@ async def _fail_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int,
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
 
     final_note = note or _resolve_template("nodata") or DEFAULT_QUICK_TEMPLATES["nodata"]
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=_user_request_card("SOLICITUD FALLIDA", request_id, command, final_note, "No se descontaron créditos."),
-        parse_mode="HTML",
-    )
+    await _send_delivery_message(context, row, _user_request_card("SOLICITUD FALLIDA", request_id, command, final_note, "No se descontaron créditos."))
     _update_request_status(c, request_id, "failed", admin_id, final_note)
     conn.commit()
     conn.close()
@@ -791,11 +819,7 @@ async def _send_template_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int
     if _should_charge(template_text, template_key):
         charged = _maybe_charge_request(c, user_id, cost, int(charged or 0))
 
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=_user_request_card("RESPUESTA", request_id, command, template_text),
-        parse_mode="HTML",
-    )
+    await _send_delivery_message(context, row, _user_request_card("RESPUESTA", request_id, command, template_text))
     _mark_request_delivery(c, request_id, admin_id, f"[template:{template_key}] {template_text}", charged=int(charged or 0), resolved=False)
     conn.commit()
     conn.close()
@@ -875,9 +899,10 @@ async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, com
         """
         INSERT INTO requests (
             user_id, username, command, payload, status, cost, charged, delivery_count, created_at,
-            attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
+            attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption,
+            origin_chat_id, origin_message_id, origin_chat_type
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             user.id,
@@ -894,6 +919,9 @@ async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, com
             attachment.get("file_unique_id", ""),
             attachment.get("file_name", ""),
             attachment.get("caption", ""),
+            message.chat_id,
+            message.message_id,
+            getattr(message.chat, "type", "") or "",
         ),
     )
     request_id = c.lastrowid
@@ -1007,20 +1035,21 @@ async def forward_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     delivered = False
 
     try:
+        delivery_kwargs = _delivery_kwargs(row)
         if update.message.photo:
-            await context.bot.send_photo(chat_id=user_id, photo=update.message.photo[-1].file_id, caption=_build_delivery_caption(intro, caption))
+            await context.bot.send_photo(**delivery_kwargs, photo=update.message.photo[-1].file_id, caption=_build_delivery_caption(intro, caption))
             delivered = True
         elif update.message.document:
-            await context.bot.send_document(chat_id=user_id, document=update.message.document.file_id, caption=_build_delivery_caption(intro, caption))
+            await context.bot.send_document(**delivery_kwargs, document=update.message.document.file_id, caption=_build_delivery_caption(intro, caption))
             delivered = True
         elif update.message.video:
-            await context.bot.send_video(chat_id=user_id, video=update.message.video.file_id, caption=_build_delivery_caption(intro, caption))
+            await context.bot.send_video(**delivery_kwargs, video=update.message.video.file_id, caption=_build_delivery_caption(intro, caption))
             delivered = True
         elif update.message.audio:
-            await context.bot.send_audio(chat_id=user_id, audio=update.message.audio.file_id, caption=_build_delivery_caption(intro, caption))
+            await context.bot.send_audio(**delivery_kwargs, audio=update.message.audio.file_id, caption=_build_delivery_caption(intro, caption))
             delivered = True
         elif update.message.voice:
-            await context.bot.send_voice(chat_id=user_id, voice=update.message.voice.file_id, caption=_build_delivery_caption(intro, caption))
+            await context.bot.send_voice(**delivery_kwargs, voice=update.message.voice.file_id, caption=_build_delivery_caption(intro, caption))
             delivered = True
     except Exception as exc:
         await update.message.reply_text(f"❌ No se pudo reenviar el archivo: {exc}")

@@ -562,15 +562,21 @@ def init_requests_db():
             attachment_file_id TEXT DEFAULT '',
             attachment_file_unique_id TEXT DEFAULT '',
             attachment_file_name TEXT DEFAULT '',
-            attachment_caption TEXT DEFAULT ''
+            attachment_caption TEXT DEFAULT '',
+            origin_chat_id INTEGER,
+            origin_message_id INTEGER,
+            origin_chat_type TEXT DEFAULT ''
         )
         """
     )
     cur.execute("PRAGMA table_info(requests)")
     request_columns = {row[1] for row in cur.fetchall()}
-    for col_name in ("attachment_type", "attachment_file_id", "attachment_file_unique_id", "attachment_file_name", "attachment_caption"):
+    for col_name in ("attachment_type", "attachment_file_id", "attachment_file_unique_id", "attachment_file_name", "attachment_caption", "origin_chat_type"):
         if col_name not in request_columns:
             cur.execute(f"ALTER TABLE requests ADD COLUMN {col_name} TEXT DEFAULT ''")
+    for col_name in ("origin_chat_id", "origin_message_id"):
+        if col_name not in request_columns:
+            cur.execute(f"ALTER TABLE requests ADD COLUMN {col_name} INTEGER")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS request_templates (
@@ -5310,9 +5316,10 @@ def internal_request_upsert():
         INSERT INTO requests (
             id, user_id, username, command, payload, status, admin_msg_id, cost,
             charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note,
-            attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
+            attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption,
+            origin_chat_id, origin_message_id, origin_chat_type
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             user_id = excluded.user_id,
             username = excluded.username,
@@ -5331,7 +5338,10 @@ def internal_request_upsert():
             attachment_file_id = excluded.attachment_file_id,
             attachment_file_unique_id = excluded.attachment_file_unique_id,
             attachment_file_name = excluded.attachment_file_name,
-            attachment_caption = excluded.attachment_caption
+            attachment_caption = excluded.attachment_caption,
+            origin_chat_id = excluded.origin_chat_id,
+            origin_message_id = excluded.origin_message_id,
+            origin_chat_type = excluded.origin_chat_type
         """,
         (
             request_id,
@@ -5353,6 +5363,9 @@ def internal_request_upsert():
             payload.get("attachment_file_unique_id") or "",
             payload.get("attachment_file_name") or "",
             payload.get("attachment_caption") or "",
+            payload.get("origin_chat_id"),
+            payload.get("origin_message_id"),
+            payload.get("origin_chat_type") or "",
         ),
     )
     conn.commit()
