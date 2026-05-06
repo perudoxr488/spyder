@@ -55,7 +55,7 @@ INTERNAL_API_KEY = (
 
 
 def _fetch_json(url: str, timeout: int = 12):
-    headers = {"User-Agent": "SpiderSynBot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
     req = _urlreq.Request(url, headers=headers)
@@ -141,16 +141,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     marca_visible = _clean_brand(MARCA or NAME)
     version_line = f" - <code>{VERSION}</code>" if non_empty(VERSION) else ""
     caption = (
-        f"👋 Hola, <b><a href='tg://user?id={user.id}'>{user.first_name}</a></b>\n\n"
-        f"Has ingresado a: <b>{marca_visible}</b>{version_line}\n"
-        "Inteligencia digital, consultas y gestión en un solo lugar.\n\n"
-        "<b>Comandos principales</b>\n"
-        "/register ➾ Registra tu cuenta\n"
-        "/cmds ➾ Lista de comandos\n"
-        "/me ➾ Revisa tu perfil y actividad\n"
-        "/buy ➾ Compra Cred/Dias\n\n"
-        "<b>Nota</b>\n"
-        "El uso de la información recae bajo total responsabilidad del usuario."
+        f"👋 <b>Bienvenido, <a href='tg://user?id={user.id}'>{user.first_name}</a></b>\n\n"
+        f"🚀 Estás dentro de <b>{marca_visible}</b>{version_line}\n"
+        "Tu centro privado para consultas, solicitudes, historial y gestión de acceso.\n\n"
+        "<b>⚡ Accesos rápidos</b>\n"
+        "🪪 /register · Activa tu cuenta\n"
+        "🧭 /cmds · Explora comandos disponibles\n"
+        "👤 /me · Revisa tu perfil, plan y créditos\n"
+        "💎 /buy · Ver paquetes y vendedores\n\n"
+        "<b>🛡️ Aviso</b>\n"
+        "Usa NEXORA con responsabilidad. Toda consulta queda bajo responsabilidad del usuario."
     )
 
     # Botones obligatorios

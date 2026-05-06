@@ -56,7 +56,7 @@ _SETTINGS_CACHE = {"ts": 0.0, "data": None}
 
 # ================== Utilidades HTTP ==================
 def _fetch_json(url: str, timeout: int = 20):
-    headers = {"User-Agent": "tussybot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
     req = _urlreq.Request(url, headers=headers)
@@ -251,12 +251,12 @@ def _build_historial_caption(bot_name: str, owner_id: str, filas: list[dict]) ->
         top_tipo = sorted(por_tipo.items(), key=lambda item: (-item[1], item[0]))[0][0]
 
     return (
-        f"<b>{bot_name} • Exportación de historial</b>\n"
-        f"ID consultado: <code>{html.escape(owner_id)}</code>\n"
-        f"Total: <b>{len(rows)}</b>\n"
-        f"Hoy: <b>{hoy}</b>\n"
-        f"Top consulta: <b>{html.escape(top_tipo)}</b>\n"
-        f"Ultima: <code>{html.escape(_to_lima(ultima_fecha.isoformat()) if ultima_fecha else '—')}</code>"
+        f"<b>{bot_name} • Registro de actividad</b>\n\n"
+        f"👤 ID consultado ⇒ <code>{html.escape(owner_id)}</code>\n"
+        f"🧾 Consultas registradas ⇒ <b>{len(rows)}</b>\n"
+        f"🌅 Consultas de hoy ⇒ <b>{hoy}</b>\n"
+        f"🏅 Consulta más usada ⇒ <b>{html.escape(top_tipo)}</b>\n"
+        f"🕒 Última actividad ⇒ <code>{html.escape(_to_lima(ultima_fecha.isoformat()) if ultima_fecha else '—')}</code>"
     )
 
 # ================== Comando ==================

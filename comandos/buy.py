@@ -49,7 +49,7 @@ def btn(text: str, url: str) -> InlineKeyboardButton:
 def _fetch_api_json(path: str, timeout: int = 15):
     if not API_BASE:
         return None
-    headers = {"User-Agent": "SpiderSynBot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
     req = _urlreq.Request(f"{API_BASE}{path}", headers=headers)
@@ -166,9 +166,9 @@ def _build_buy_text(bot_arroba: str, section: str = "all") -> str:
     credit_items = sum(len(group.get("items") or []) for group in groups.get("credits", []))
     day_items = sum(len(group.get("items") or []) for group in groups.get("days", []))
     parts = [
-        "✨ <b>PLANES Y TARIFAS</b> ✨",
-        f"⚡️ <i>By:</i> <b>{bot_arroba}</b>",
-        f"📦 Opciones activas: <code>{credit_items}</code> créditos · <code>{day_items}</code> días",
+        "💎 <b>NEXORA STORE</b>",
+        f"⚡ <b>{bot_arroba}</b> · acceso premium y créditos al instante",
+        f"📦 Catálogo activo: <code>{credit_items}</code> paquetes de créditos · <code>{day_items}</code> paquetes por días",
     ]
 
     show_credits = section in {"all", "credits"}
@@ -176,35 +176,35 @@ def _build_buy_text(bot_arroba: str, section: str = "all") -> str:
 
     if show_credits:
         parts.append("")
-        parts.append("💰 <b>PLAN POR CREDITOS</b> 💰")
+        parts.append("💰 <b>Créditos para consultas</b>")
         parts.append("")
         if groups["credits"]:
             for group in groups["credits"]:
-                parts.append(f"⟦{group['badge']}⟧ <b>{group['title']} ({group['subtitle']})</b>")
+                parts.append(f"{group['badge']} <b>{group['title']}</b> · <code>{group['subtitle']}</code>")
                 for item in group["items"]:
-                    parts.append(f"• {item}")
+                    parts.append(f"  └ {item}")
                 parts.append("")
         else:
-            parts.append("Sin paquetes de créditos configurados.")
+            parts.append("⚠️ Aún no hay paquetes de créditos configurados.")
             parts.append("")
 
     if show_days:
         parts.append("")
-        parts.append("⏳ <b>PLAN POR DIAS</b> ⏳")
+        parts.append("⏳ <b>Planes por tiempo</b>")
         parts.append("")
         if groups["days"]:
             for group in groups["days"]:
-                parts.append(f"⟦{group['badge']}⟧ <b>{group['title']} ({group['subtitle']})</b>")
+                parts.append(f"{group['badge']} <b>{group['title']}</b> · <code>{group['subtitle']}</code>")
                 for item in group["items"]:
-                    parts.append(f"• {item}")
+                    parts.append(f"  └ {item}")
                 parts.append("")
         else:
-            parts.append("Sin paquetes por días configurados.")
+            parts.append("⚠️ Aún no hay planes por días configurados.")
             parts.append("")
 
-    parts.append("[⚠️] <b>IMPORTANTE</b> ➩ Antes de comprar leer los terminos y condiciones usa /terminos")
+    parts.append("🛡️ <b>Antes de comprar</b> revisa /terminos")
     parts.append("")
-    parts.append("Toca un vendedor o dueño abajo para comprar.")
+    parts.append("👇 Elige un vendedor autorizado para completar tu compra.")
     return "\n".join(parts).strip()
 
 

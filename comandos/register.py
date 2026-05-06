@@ -42,7 +42,7 @@ INTERNAL_API_KEY = (
 
 
 def _fetch_json(url: str, timeout: int = 15):
-    headers = {"User-Agent": "tussybot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
     req = _urlreq.Request(url, headers=headers)

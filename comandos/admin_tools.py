@@ -53,7 +53,7 @@ def _is_admin(user_id: int) -> bool:
 def _api(path: str, timeout: int = 18, method: str = "GET", payload: dict | None = None):
     if not API_BASE:
         return 599, {"status": "error", "message": "API_BASE no está configurado"}
-    headers = {"User-Agent": "SpiderSynBot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     data = None
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY

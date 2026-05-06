@@ -12,7 +12,7 @@ def _get_bot_name() -> str:
         try:
             with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
-            # En tu config sueles tener algo como "<code>[</code>#TUSSYBOT<code>]</code> ➾"
+            # Si el nombre viene con etiquetas HTML, limpiamos para este texto plano.
             # Para evitar etiquetas HTML aquí, limpiamos si es necesario
             raw = (cfg.get("BOT_NAME") or "").strip()
             if raw and raw.upper() not in {"SPIDERSYN", "#SPIDERSYN", "#SPIDERSYN ⇒"}:

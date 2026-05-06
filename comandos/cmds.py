@@ -117,7 +117,7 @@ def _load_cfg():
 def _fetch_api_json(path: str, timeout: int = 15):
     if not API_BASE:
         return None
-    headers = {"User-Agent": "SpiderSynBot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
     req = _urlreq.Request(f"{API_BASE}{path}", headers=headers)
@@ -389,10 +389,10 @@ def _home_caption(cfg: dict, user) -> str:
     nombre = html.escape(user.first_name or "Usuario")
     link = _user_link(user)
     return (
-        f"<b>{bot_name} SISTEMA DE COMANDOS</b>\n\n"
-        f"➣ Hola, <a href=\"{link}\">{nombre}</a>\n\n"
-        "Bienvenido al menu principal de comandos.\n\n"
-        "⚙️ Selecciona una categoría para ver los comandos activos."
+        f"<b>{bot_name} CENTRO DE COMANDOS</b>\n\n"
+        f"👋 Hola, <a href=\"{link}\">{nombre}</a>\n\n"
+        "🧭 Elige una categoría y encuentra rápido la consulta que necesitas.\n"
+        "⚡ Cada comando muestra ejemplo, costo y estado en tiempo real."
     )
 
 
@@ -405,15 +405,15 @@ def _category_caption(cfg: dict, category: dict, commands: list[dict], page: int
     items = commands[start:end]
 
     lines = [
-        f"<b>{bot_name}</b> <i>SISTEMA DE COMANDOS</i>",
-        f"🏷️ <b>CATEGORÍA</b> ➾ <code>{html.escape(category['name'])} [{_icon_for_category(category['slug'])}]</code>",
-        f"🧩 <b>COMANDOS</b> ➾ <code>{total_commands}</code> disponibles",
-        f"📖 <b>PÁGINA</b> ➾ <code>{page}/{total_pages}</code>",
+        f"<b>{bot_name}</b> <i>CATÁLOGO ACTIVO</i>",
+        f"🏷️ <b>Categoría</b> ⇒ <code>{html.escape(category['name'])} {_icon_for_category(category['slug'])}</code>",
+        f"🧩 <b>Comandos</b> ⇒ <code>{total_commands}</code> disponibles",
+        f"📖 <b>Página</b> ⇒ <code>{page}/{total_pages}</code>",
         "",
     ]
 
     if not items:
-        lines.append("⚠️ No hay comandos activos en esta categoría.")
+        lines.append("⚠️ Esta categoría todavía no tiene comandos activos.")
         return "\n".join(lines)
 
     for cmd in items:
@@ -422,12 +422,12 @@ def _category_caption(cfg: dict, category: dict, commands: list[dict], page: int
         desc = cmd.get("description") or fallback.get("description") or "Sin descripción."
         is_active = bool(cmd.get("is_active"))
         lines.extend([
-            f"📍 <b>{html.escape(cmd['name'])}</b>",
+            f"🔹 <b>{html.escape(cmd['name'])}</b>",
             "┈┈┈┈┈┈┈┈┈┈",
-            f"{'🟢' if is_active else '🔴'} <b>ESTADO</b> ➾ <b>{'ACTIVO' if is_active else 'INACTIVO'}</b> {'✅' if is_active else '⛔'}",
-            f"⌨️ <b>COMANDO</b> ➾ <code>{html.escape(usage)}</code>",
-            f"💳 <b>PRECIO</b> ➾ <code>{int(cmd['cost'])} créditos</code>",
-            f"📦 <b>INFO</b> ➾ <i>{html.escape(desc)}</i>",
+            f"{'🟢' if is_active else '🔴'} <b>Estado</b> ⇒ <b>{'ACTIVO' if is_active else 'INACTIVO'}</b>",
+            f"⌨️ <b>Uso</b> ⇒ <code>{html.escape(usage)}</code>",
+            f"💳 <b>Costo</b> ⇒ <code>{int(cmd['cost'])} créditos</code>",
+            f"📌 <b>Detalle</b> ⇒ <i>{html.escape(desc)}</i>",
             "",
         ])
 
@@ -441,15 +441,15 @@ def _search_caption(cfg: dict, query: str, commands: list[dict], page: int = 1) 
     start = (page - 1) * SEARCH_PAGE_SIZE
     visible = commands[start:start + SEARCH_PAGE_SIZE]
     lines = [
-        f"<b>{bot_name}</b> <i>BUSCADOR DE COMANDOS</i>",
-        f"🔎 <b>BÚSQUEDA</b> ➾ <code>{html.escape(query)}</code>",
-        f"🧩 <b>RESULTADOS</b> ➾ <code>{len(commands)}</code>",
-        f"📖 <b>PÁGINA</b> ➾ <code>{page}/{total_pages}</code>",
+        f"<b>{bot_name}</b> <i>BÚSQUEDA INTELIGENTE</i>",
+        f"🔎 <b>Búsqueda</b> ⇒ <code>{html.escape(query)}</code>",
+        f"🧩 <b>Resultados</b> ⇒ <code>{len(commands)}</code>",
+        f"📖 <b>Página</b> ⇒ <code>{page}/{total_pages}</code>",
         "",
     ]
     if not commands:
-        lines.append("No encontré comandos con esa búsqueda.")
-        lines.append("Prueba por nombre, categoría o ejemplo de uso.")
+        lines.append("⚠️ No encontré comandos con esa búsqueda.")
+        lines.append("Prueba con nombre, categoría o ejemplo de uso.")
         return "\n".join(lines)
     for cmd in visible:
         fallback = DEFAULT_DETAILS.get(cmd.get("slug"), {})

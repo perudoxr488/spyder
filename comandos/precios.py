@@ -40,7 +40,7 @@ MAX_MESSAGE = 3600
 def _fetch_catalog_prices():
     if not API_BASE:
         return []
-    headers = {"User-Agent": "SpiderSynBot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
     req = _urlreq.Request(f"{API_BASE}/bot_catalog", headers=headers)

@@ -55,7 +55,7 @@ def _is_admin(user_id: int) -> bool:
 
 
 def _request(url: str, timeout: int = 20, as_bytes: bool = False):
-    headers = {"User-Agent": "SpiderSynBot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
     req = _urlreq.Request(url, headers=headers)

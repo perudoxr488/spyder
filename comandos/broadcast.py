@@ -53,7 +53,7 @@ def _is_admin(user_id: int) -> bool:
 
 
 def _fetch_json(url: str, timeout: int = 20):
-    headers = {"User-Agent": "SpiderSynBot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
     req = _urlreq.Request(url, headers=headers)

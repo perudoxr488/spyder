@@ -114,7 +114,7 @@ PLAN_TO_ANTISPAM = {"BASICO": 30, "STANDARD": 15, "PREMIUM": 5}
 
 
 def _fetch_json(url: str, timeout: int = 20, method: str = "GET", payload: dict | None = None) -> Tuple[int, dict]:
-    headers = {"User-Agent": "tussybot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     data = None
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY

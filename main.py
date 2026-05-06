@@ -101,7 +101,7 @@ print(f"API base cargada: {API_DB_BASE}")
 _last_call_ts: dict[tuple[int, str], float] = {}
 
 def _fetch_json(url: str, timeout: int = 12):
-    headers = {"User-Agent": "tussybot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
     req = _urlreq.Request(url, headers=headers)

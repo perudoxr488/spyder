@@ -50,11 +50,11 @@ HISTORIAL_ENDPOINT = f"{API_BASE}/historial"
 REQUEST_SYNC_ENDPOINT = f"{API_BASE}/internal/request/upsert"
 
 DEFAULT_QUICK_TEMPLATES = {
-    "nodata": "《⚠️》 No se encontró información.",
-    "proceso": "⏳ Tu solicitud sigue en proceso. Apenas la terminemos te la enviamos.",
-    "formato": "⚠️ Revisa el formato enviado e inténtalo otra vez. Si quieres, vuelve a mandar la consulta con un ejemplo más claro.",
-    "observado": "⚠️ La solicitud fue observada. Escríbenos de nuevo con los datos completos para continuar.",
-    "completado": "✅ Listo, aquí tienes el resultado de tu solicitud.",
+    "nodata": "🔎 NEXORA no encontró resultados con los datos enviados.",
+    "proceso": "⏳ Tu solicitud sigue en análisis. Te enviaremos la respuesta apenas esté lista.",
+    "formato": "⚠️ El formato no es válido. Revisa los datos y vuelve a intentarlo con el ejemplo correcto.",
+    "observado": "📌 Tu solicitud necesita más datos. Envíanos la información completa para continuar.",
+    "completado": "✅ Resultado listo. Aquí tienes la respuesta de tu solicitud.",
 }
 REQUEST_ACTION_KEY = "request_action_state"
 
@@ -72,7 +72,7 @@ def now_iso() -> str:
 
 
 def _fetch_json(url: str, timeout: int = 12, method: str = "GET", payload: dict | None = None):
-    headers = {"User-Agent": "SpiderSynBot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     data = None
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
@@ -336,8 +336,8 @@ def _user_request_card(title: str, request_id: int, command: str, body: str, foo
     lines = [
         f"<b>#NEXORA ⇒ {title}</b>",
         "",
-        f"<b>Solicitud</b> ⇒ <code>#{int(request_id)}</code>",
-        f"<b>Comando</b> ⇒ <code>/{_html(command)}</code>",
+        f"🆔 <b>Solicitud</b> ⇒ <code>#{int(request_id)}</code>",
+        f"⌨️ <b>Comando</b> ⇒ <code>/{_html(command)}</code>",
         "",
         _html(body).strip() or "—",
     ]
@@ -354,21 +354,21 @@ def _request_owner_notice(request_id: int, user, command: str, cost: int, payloa
     username = _target_label(getattr(user, "username", None), getattr(user, "id", ""))
     return "\n".join(
         [
-            f"<b>📩 Nueva solicitud #{int(request_id)}</b>",
+            f"<b>📩 NEXORA · Nueva solicitud #{int(request_id)}</b>",
             "",
-            f"<b>Usuario</b> ⇒ {_html(username)}",
-            f"<b>ID</b> ⇒ <code>{_html(getattr(user, 'id', ''))}</code>",
-            f"<b>Comando</b> ⇒ <code>/{_html(command)}</code>",
-            f"<b>Costo</b> ⇒ <code>{int(cost)} créditos</code>",
-            f"<b>Plan</b> ⇒ <code>{_html(plan)}</code>",
-            f"<b>Créditos</b> ⇒ <code>{_html(credits)}</code>",
-            f"<b>Anti-spam</b> ⇒ <code>{_html(antispam)} s</code>",
-            f"<b>Fecha</b> ⇒ <code>{now_iso()}</code>",
+            f"👤 <b>Usuario</b> ⇒ {_html(username)}",
+            f"🆔 <b>ID</b> ⇒ <code>{_html(getattr(user, 'id', ''))}</code>",
+            f"⌨️ <b>Comando</b> ⇒ <code>/{_html(command)}</code>",
+            f"💳 <b>Costo</b> ⇒ <code>{int(cost)} créditos</code>",
+            f"💎 <b>Plan</b> ⇒ <code>{_html(plan)}</code>",
+            f"💰 <b>Créditos</b> ⇒ <code>{_html(credits)}</code>",
+            f"⚡ <b>Anti-spam</b> ⇒ <code>{_html(antispam)} s</code>",
+            f"🕒 <b>Fecha</b> ⇒ <code>{now_iso()}</code>",
             "",
-            "<b>Pedido</b>",
+            "<b>📨 Pedido recibido</b>",
             f"<pre>{_html(_trim(payload, 1200))}</pre>",
             "",
-            "<b>Acciones rápidas</b>",
+            "<b>⚙️ Acciones rápidas</b>",
             f"<code>/reply {int(request_id)} texto</code>",
             f"<code>/rquick {int(request_id)} completado</code>",
             f"<code>/done {int(request_id)}</code>",
@@ -707,7 +707,7 @@ async def _done_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int,
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
 
-    final_note = note or "✅ Tu solicitud fue finalizada por el administrador."
+    final_note = note or "✅ Tu solicitud fue completada por el equipo NEXORA."
     await context.bot.send_message(
         chat_id=user_id,
         text=_user_request_card("SOLICITUD FINALIZADA", request_id, command, final_note),
@@ -907,12 +907,12 @@ async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, com
             [
                 "<b>#NEXORA ⇒ SOLICITUD RECIBIDA</b>",
                 "",
-                f"<b>Solicitud</b> ⇒ <code>#{request_id}</code>",
-                f"<b>Comando</b> ⇒ <code>/{_html(command)}</code>",
-                f"<b>Costo</b> ⇒ <code>{int(cost)} créditos</code>",
-                "<b>Estado</b> ⇒ <code>Pendiente</code>",
+                f"🆔 <b>Solicitud</b> ⇒ <code>#{request_id}</code>",
+                f"⌨️ <b>Comando</b> ⇒ <code>/{_html(command)}</code>",
+                f"💳 <b>Costo</b> ⇒ <code>{int(cost)} créditos</code>",
+                "⏳ <b>Estado</b> ⇒ <code>En cola</code>",
                 "",
-                "Tu pedido ya fue enviado al equipo.",
+                "Tu pedido entró al panel de atención. Te avisaremos cuando esté listo.",
             ]
         ),
         parse_mode="HTML",
@@ -1049,7 +1049,7 @@ async def done_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     request_id, note = _parse_request_target(update.message.text, update.message.reply_to_message, "/done")
-    note = note or "✅ Tu solicitud fue finalizada por el administrador."
+    note = note or "✅ Tu solicitud fue completada por el equipo NEXORA."
 
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -1343,7 +1343,7 @@ async def admin_followup_message(update: Update, context: ContextTypes.DEFAULT_T
     _clear_action_state(context)
 
     if action == "done":
-        ok, msg = await _done_request_by_id(context, update.effective_user.id, request_id, text or "✅ Tu solicitud fue finalizada por el administrador.")
+        ok, msg = await _done_request_by_id(context, update.effective_user.id, request_id, text or "✅ Tu solicitud fue completada por el equipo NEXORA.")
         await update.message.reply_text(msg)
         return
 

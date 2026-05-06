@@ -52,7 +52,7 @@ _SETTINGS_CACHE = {"ts": 0.0, "data": None}
 
 
 def _fetch_json(url: str, timeout: int = 20):
-    headers = {"User-Agent": "tussybot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
     req = _urlreq.Request(url, headers=headers)
@@ -276,13 +276,13 @@ def _build_compras_caption(bot_name: str, owner_id: str, filas: list[dict]) -> s
         top_vendedor = sorted(por_vendedor.items(), key=lambda item: (-item[1], item[0]))[0][0]
 
     return (
-        f"<b>{bot_name} • Exportación de compras</b>\n"
-        f"ID consultado: <code>{html.escape(owner_id)}</code>\n"
-        f"Total: <b>{len(rows)}</b>\n"
-        f"Hoy: <b>{compras_hoy}</b>\n"
-        f"Dias aprox.: <b>{total_dias}</b>\n"
-        f"Top vendedor: <b>{html.escape(top_vendedor)}</b>\n"
-        f"Ultima: <code>{html.escape(_to_lima(ultima_fecha.isoformat()) if ultima_fecha else '—')}</code>"
+        f"<b>{bot_name} • Centro de compras</b>\n\n"
+        f"👤 ID consultado ⇒ <code>{html.escape(owner_id)}</code>\n"
+        f"🛒 Compras registradas ⇒ <b>{len(rows)}</b>\n"
+        f"🌅 Compras de hoy ⇒ <b>{compras_hoy}</b>\n"
+        f"⏳ Días acumulados aprox. ⇒ <b>{total_dias}</b>\n"
+        f"🏅 Vendedor frecuente ⇒ <b>{html.escape(top_vendedor)}</b>\n"
+        f"🕒 Última compra ⇒ <code>{html.escape(_to_lima(ultima_fecha.isoformat()) if ultima_fecha else '—')}</code>"
     )
 
 

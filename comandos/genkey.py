@@ -46,7 +46,7 @@ INTERNAL_API_KEY = (
 
 
 def _fetch_json(url: str, timeout: int = 15, method: str = "GET", payload: dict | None = None):
-    headers = {"User-Agent": "SpiderSynBot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     data = None
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY

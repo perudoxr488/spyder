@@ -102,7 +102,7 @@ def _days_left(exp_iso: Optional[str]) -> Tuple[str, bool, Optional[int]]:
 
 
 def _fetch_json(url: str, timeout: int = 15):
-    headers = {"User-Agent": "tussybot/1.0"}
+    headers = {"User-Agent": "NexoraBot/1.0"}
     if INTERNAL_API_KEY:
         headers["X-Internal-Api-Key"] = INTERNAL_API_KEY
     req = _urlreq.Request(url, headers=headers)
@@ -267,26 +267,26 @@ async def me_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tiempo_str, activo, _ = _days_left(exp)
     creditos_str = f"{creditos}{' ♾️' if activo else ''}"
 
-    header = f"{_bot_brand()} ME - PERFIL"
+    header = f"{_bot_brand()} PANEL DE PERFIL"
 
     caption = (
         f"<b>{header}</b>\n"
-        f"\n<b>PERFIL DE</b> ➾ <a href=\"{perfil_link}\">{nombre_html}</a>\n"
-        f"\n<b>INFORMACIÓN PERSONAL</b>\n"
-        f"[🙎‍♂️] <b>ID</b> ➾ <code>{id_api}</code>\n"
-        f"[👨🏻‍💻] <b>USER</b> ➾ @{target_username if target_username else '—'}\n"
-        f"[👺] <b>ESTADO</b> ➾ {html.escape(str(estado))}\n"
-        f"[📅] <b>F. REGISTRO</b> ➾ {_to_lima_iso_hm(fecha_reg)}\n"
-        f"\n<b>🌐 ESTADO DE CUENTA</b>\n\n"
-        f"[〽️] <b>ROL TG</b> ➾ <code>{html.escape(str(rol_tg))}</code>\n"
-        f"[📈] <b>PLAN</b> ➾ <code>{html.escape(str(plan))}</code>\n"
-        f"[⏱️] <b>ANTI-SPAM</b> ➾ <code>{html.escape(str(antispam))}</code>\n"
-        f"[💰] <b>CREDITOS</b> ➾ <code>{html.escape(str(creditos_str))}</code>\n"
-        f"[⏳] <b>TIEMPO</b> ➾ <code>{html.escape(str(tiempo_str))}</code>\n"
-        f"[📅] <b>F. EXPIRACIÓN</b> ➾ <code>{html.escape(str(exp_str_local))}</code>\n"
-        f"[📊] <b>TOTAL CONSULTAS</b> ➾ <code>{total_consultas}</code>\n"
-        f"[🗓️] <b>CONSULTAS HOY</b> ➾ <code>{hoy_consultas}</code>\n"
-        f"\n[🛒] <b>Verifica tus compras</b> ➾ /compras"
+        f"\n👤 <b>Usuario</b> ⇒ <a href=\"{perfil_link}\">{nombre_html}</a>\n"
+        f"🆔 <b>ID</b> ⇒ <code>{id_api}</code>\n"
+        f"🔗 <b>Username</b> ⇒ @{target_username if target_username else '—'}\n"
+        f"🟢 <b>Estado</b> ⇒ <code>{html.escape(str(estado))}</code>\n"
+        f"📅 <b>Registro</b> ⇒ <code>{_to_lima_iso_hm(fecha_reg)}</code>\n"
+        f"\n<b>💠 Cuenta NEXORA</b>\n"
+        f"👑 <b>Rol</b> ⇒ <code>{html.escape(str(rol_tg))}</code>\n"
+        f"💎 <b>Plan</b> ⇒ <code>{html.escape(str(plan))}</code>\n"
+        f"⚡ <b>Anti-spam</b> ⇒ <code>{html.escape(str(antispam))} s</code>\n"
+        f"💰 <b>Créditos</b> ⇒ <code>{html.escape(str(creditos_str))}</code>\n"
+        f"⏳ <b>Tiempo</b> ⇒ <code>{html.escape(str(tiempo_str))}</code>\n"
+        f"📆 <b>Expira</b> ⇒ <code>{html.escape(str(exp_str_local))}</code>\n"
+        f"\n<b>📊 Actividad</b>\n"
+        f"🧾 <b>Total consultas</b> ⇒ <code>{total_consultas}</code>\n"
+        f"🌅 <b>Consultas hoy</b> ⇒ <code>{hoy_consultas}</code>\n"
+        f"\n🛒 <b>Compras</b> ⇒ /compras"
     )
 
     try:
