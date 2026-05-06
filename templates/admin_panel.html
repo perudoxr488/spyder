@@ -1179,6 +1179,10 @@
                       </div>
                       <button type="submit">Guardar</button>
                     </form>
+                    <form method="post" action="{{ url_for('admin_delete_category') }}" data-confirm="¿Eliminar la categoría {{ cat.name }}? Los comandos quedarán sin categoría.">
+                      <input type="hidden" name="slug" value="{{ cat.slug }}">
+                      <button class="danger" type="submit">Eliminar categoría</button>
+                    </form>
                   </details>
                 </td>
               </tr>
@@ -1295,6 +1299,10 @@
                       <input name="new_name" placeholder="Nombre visible opcional">
                     </div>
                     <button class="secondary" type="submit">Duplicar comando</button>
+                  </form>
+                  <form method="post" action="{{ url_for('admin_delete_command') }}" data-confirm="¿Eliminar /{{ cmd.slug }} del catálogo?">
+                    <input type="hidden" name="slug" value="{{ cmd.slug }}">
+                    <button class="danger" type="submit">Eliminar comando</button>
                   </form>
                   </details>
                 </td>

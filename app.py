@@ -4314,6 +4314,32 @@ def admin_save_category():
     return redirect(url_for("admin_panel", section="categorias", flash=f"Categoría {name} guardada."))
 
 
+@app.route("/admin/category/delete", methods=["POST"])
+def admin_delete_category():
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
+    if gate:
+        return gate
+    slug = (request.form.get("slug") or "").strip().lower()
+    if not slug:
+        return redirect(url_for("admin_panel", section="categorias", flash="Categoría inválida."))
+
+    conn = get_conn(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT id, name FROM command_categories WHERE slug = ?", (slug,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return redirect(url_for("admin_panel", section="categorias", flash=f"No encontré la categoría {slug}."))
+
+    category_id, category_name = row[0], row[1]
+    cur.execute("UPDATE command_catalog SET category_id = NULL WHERE category_id = ?", (category_id,))
+    cur.execute("DELETE FROM command_categories WHERE id = ?", (category_id,))
+    conn.commit()
+    conn.close()
+    log_audit_event("category.delete", slug, f"name={category_name}; commands_detached=true")
+    return redirect(url_for("admin_panel", section="categorias", flash=f"Categoría {category_name} eliminada. Sus comandos quedaron sin categoría."))
+
+
 @app.route("/admin/command/save", methods=["POST"])
 def admin_save_command():
     gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
@@ -4364,6 +4390,30 @@ def admin_save_command():
     conn.close()
     log_audit_event("command.save", slug, f"name={name}; cost={max(0, cost)}; active={is_active}; category_id={category_id}; required_plan={required_plan}")
     return redirect(url_for("admin_panel", section="comandos", flash=f"Comando /{slug} guardado."))
+
+
+@app.route("/admin/command/delete", methods=["POST"])
+def admin_delete_command():
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
+    if gate:
+        return gate
+    slug = (request.form.get("slug") or "").strip().lower().lstrip("/")
+    if not slug:
+        return redirect(url_for("admin_panel", section="comandos", flash="Comando inválido."))
+
+    conn = get_conn(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM command_catalog WHERE slug = ?", (slug,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return redirect(url_for("admin_panel", section="comandos", flash=f"No encontré /{slug}."))
+    command_name = row[0]
+    cur.execute("DELETE FROM command_catalog WHERE slug = ?", (slug,))
+    conn.commit()
+    conn.close()
+    log_audit_event("command.delete", slug, f"name={command_name}")
+    return redirect(url_for("admin_panel", section="comandos", flash=f"Comando /{slug} eliminado."))
 
 
 @app.route("/admin/command/duplicate", methods=["POST"])
