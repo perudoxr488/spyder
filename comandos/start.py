@@ -25,6 +25,14 @@ else:
 def non_empty(s: str) -> bool:
     return isinstance(s, str) and s.strip() != ""
 
+
+def _clean_brand(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if raw.upper() in {"", "BOT", "SPIDERSYN", "#SPIDERSYN", "#SPIDERSYN ⇒"}:
+        return "#NEXORA ⇒"
+    return raw
+
+
 def btn(text: str, url: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text, url=url)
 
@@ -110,8 +118,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     settings = _get_panel_settings()
 
-    MARCA       = cfg.get("MARCA")
-    NAME        = cfg.get("NAME")
+    MARCA       = settings.get("BOT_NAME") or cfg.get("BOT_NAME") or cfg.get("MARCA")
+    NAME        = settings.get("BOT_NAME") or cfg.get("BOT_NAME") or cfg.get("NAME")
     VERSION     = cfg.get("VERSION")
     LOGO_URL    = settings.get("FT_START") or (cfg.get("LOGO") or {}).get("FT_START")
 
@@ -130,12 +138,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (settings.get("BT_SELLER3") or cfg.get("BT_SELLER3"), settings.get("SELLER_LINK3") or cfg.get("SELLER_LINK3")),
     ]
 
-    marca_visible = MARCA or NAME or "BOT"
+    marca_visible = _clean_brand(MARCA or NAME)
     version_line = f" - <code>{VERSION}</code>" if non_empty(VERSION) else ""
     caption = (
         f"👋 Hola, <b><a href='tg://user?id={user.id}'>{user.first_name}</a></b>\n\n"
         f"Has ingresado a: <b>{marca_visible}</b>{version_line}\n"
-        "Un espacio donde los datos se convierten en conocimiento útil.\n\n"
+        "Inteligencia digital, consultas y gestión en un solo lugar.\n\n"
         "<b>Comandos principales</b>\n"
         "/register ➾ Registra tu cuenta\n"
         "/cmds ➾ Lista de comandos\n"
