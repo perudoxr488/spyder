@@ -324,7 +324,7 @@
                   </form>
                   <div class="actions" style="margin-top:8px; flex-wrap:wrap;">
                     <form method="post" action="{{ url_for('admin_user_action') }}"><input type="hidden" name="id_tg" value="{{ user.id_tg }}"><input type="hidden" name="action" value="owner"><button class="secondary" type="submit">Dueño</button></form>
-                    <form method="post" action="{{ url_for('admin_user_action') }}"><input type="hidden" name="id_tg" value="{{ user.id_tg }}"><input type="hidden" name="action" value="{{ 'unban' if user.estado == 'BANEADO' else 'ban' }}"><button class="{{ 'secondary' if user.estado == 'BANEADO' else 'danger' }}" type="submit">{{ 'Desbanear' if user.estado == 'BANEADO' else 'Banear' }}</button></form>
+                    <form method="post" action="{{ url_for('admin_user_action') }}" data-confirm="{{ '¿Desbanear este usuario?' if user.estado == 'BANEADO' else '¿Banear este usuario?' }}"><input type="hidden" name="id_tg" value="{{ user.id_tg }}"><input type="hidden" name="action" value="{{ 'unban' if user.estado == 'BANEADO' else 'ban' }}"><button class="{{ 'secondary' if user.estado == 'BANEADO' else 'danger' }}" type="submit">{{ 'Desbanear' if user.estado == 'BANEADO' else 'Banear' }}</button></form>
                   </div>
                   <div class="actions" style="margin-top:8px; flex-wrap:wrap;">
                     {% for amount in [10,50,100,500] %}
@@ -735,7 +735,12 @@
                   <strong>{% if req.username %}@{{ req.username }}{% else %}{{ req.user_id }}{% endif %}</strong>
                   <div class="small">ID: {{ req.user_id }}</div>
                 </td>
-                <td>/{{ req.command }}<div class="small">{{ req.payload or '—' }}</div></td>
+                <td>
+                  /{{ req.command }}<div class="small">{{ req.payload or '—' }}</div>
+                  {% if req.attachment_file_id %}
+                  <div class="small"><a href="{{ url_for('admin_request_attachment', request_id=req.id) }}" target="_blank">Ver adjunto{% if req.attachment_type %}: {{ req.attachment_type }}{% endif %}</a></div>
+                  {% endif %}
+                </td>
                 <td>{{ req.cost }}</td>
                 <td><span class="badge {% if req.status == 'pending' %}off{% else %}ok{% endif %}">{{ req.status }}</span><div class="small">{{ req.created_at or '—' }}</div></td>
                 <td>{{ req.admin_msg_id or '—' }}</td>
@@ -771,8 +776,8 @@
                     <button class="secondary" type="submit" name="action" value="template_resolve">Enviar plantilla y resolver</button>
                     <div class="inline">
                       <button type="submit" name="action" value="resolve">Resolver</button>
-                      <button type="submit" name="action" value="close">Cerrar</button>
-                      <button type="submit" name="action" value="fail">Fallida</button>
+                      <button type="submit" name="action" value="close" data-confirm="¿Cerrar esta solicitud sin cobrar?">Cerrar</button>
+                      <button type="submit" name="action" value="fail" data-confirm="¿Marcar esta solicitud como fallida?">Fallida</button>
                     </div>
                   </form>
                   </details>
@@ -804,7 +809,12 @@
                   <strong>{% if req.username %}@{{ req.username }}{% else %}{{ req.user_id }}{% endif %}</strong>
                   <div class="small">ID: {{ req.user_id }}</div>
                 </td>
-                <td>/{{ req.command }}<div class="small">{{ req.payload or '—' }}</div></td>
+                <td>
+                  /{{ req.command }}<div class="small">{{ req.payload or '—' }}</div>
+                  {% if req.attachment_file_id %}
+                  <div class="small"><a href="{{ url_for('admin_request_attachment', request_id=req.id) }}" target="_blank">Ver adjunto{% if req.attachment_type %}: {{ req.attachment_type }}{% endif %}</a></div>
+                  {% endif %}
+                </td>
                 <td><span class="badge {% if req.status == 'resolved' %}ok{% elif req.status == 'pending' %}off{% else %}pill{% endif %}">{{ req.status }}</span></td>
                 <td>{{ req.resolution_note or '—' }}</td>
                 <td>{{ req.resolved_at or '—' }}<div class="small">Admin: {{ req.resolved_by or '—' }}</div></td>
@@ -1222,6 +1232,14 @@
                     <input name="validation_invalid_message" value="{{ cmd.validation_invalid_message or '' }}" placeholder="Mensaje si está mal">
                     <button type="submit">Guardar</button>
                   </form>
+                  <form method="post" action="{{ url_for('admin_duplicate_command') }}" class="stack" style="margin-top:10px;" data-confirm="¿Duplicar /{{ cmd.slug }} con el nuevo slug indicado?">
+                    <input type="hidden" name="source_slug" value="{{ cmd.slug }}">
+                    <div class="inline">
+                      <input name="new_slug" placeholder="nuevo_slug" required>
+                      <input name="new_name" placeholder="Nombre visible opcional">
+                    </div>
+                    <button class="secondary" type="submit">Duplicar comando</button>
+                  </form>
                   </details>
                 </td>
               </tr>
@@ -1351,7 +1369,7 @@
             <p class="small">Exporta o importa el catálogo completo del panel.</p>
             <p><a href="{{ url_for('admin_export_panel') }}">Descargar respaldo JSON</a></p>
             <p><a href="{{ url_for('admin_db_backup_zip') }}">Descargar todas las DB</a></p>
-            <form method="post" action="{{ url_for('admin_import_panel') }}" enctype="multipart/form-data">
+            <form method="post" action="{{ url_for('admin_import_panel') }}" enctype="multipart/form-data" data-confirm="¿Importar este respaldo? Se recomienda tener backup antes.">
               <label>Importar archivo JSON</label>
               <input type="file" name="backup_file" accept=".json,application/json" required>
               <button type="submit">Importar respaldo</button>
@@ -1359,7 +1377,7 @@
           </div>
           <div class="card">
             <h2>Acciones Masivas</h2>
-            <form method="post" action="{{ url_for('admin_bulk_commands') }}">
+            <form method="post" action="{{ url_for('admin_bulk_commands') }}" data-confirm="¿Aplicar esta acción masiva a los comandos filtrados?">
               <label>Categoría</label>
               <select name="category_slug">
                 <option value="">Todas</option>
@@ -1448,7 +1466,7 @@
           <div class="card">
             <h2>Clave del panel</h2>
             <p class="small">La nueva clave queda guardada como hash en la DB persistente.</p>
-            <form method="post" action="{{ url_for('admin_update_panel_password') }}">
+            <form method="post" action="{{ url_for('admin_update_panel_password') }}" data-confirm="¿Cambiar la clave del panel?">
               <label>Clave actual</label>
               <input name="current_password" type="password" required>
               <label>Nueva clave</label>
@@ -1524,7 +1542,7 @@
                 {% endfor %}
               </tbody>
             </table>
-            <form method="post" action="{{ url_for('admin_cleanup_history') }}" style="margin-top:14px;">
+            <form method="post" action="{{ url_for('admin_cleanup_history') }}" style="margin-top:14px;" data-confirm="¿Limpiar historial antiguo? Esta acción no se puede deshacer sin restaurar backup.">
               <label>Eliminar historial más antiguo que</label>
               <select name="days">
                 <option value="90">90 días</option>
@@ -1728,5 +1746,19 @@
     if ("{{ active_section }}" === "solicitudes") {
       setTimeout(() => window.location.reload(), 15000);
     }
+    document.querySelectorAll('form[data-confirm]').forEach((form) => {
+      form.addEventListener('submit', (event) => {
+        if (!window.confirm(form.dataset.confirm || '¿Confirmar acción?')) {
+          event.preventDefault();
+        }
+      });
+    });
+    document.querySelectorAll('button[data-confirm]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        if (!window.confirm(button.dataset.confirm || '¿Confirmar acción?')) {
+          event.preventDefault();
+        }
+      });
+    });
   </script>
 </html>

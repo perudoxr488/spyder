@@ -132,7 +132,12 @@ def _request_row_to_payload(row) -> dict:
         resolved_at,
         resolved_by,
         resolution_note,
-    ) = row
+        attachment_type,
+        attachment_file_id,
+        attachment_file_unique_id,
+        attachment_file_name,
+        attachment_caption,
+    ) = row[:14]
     return {
         "id": request_id,
         "user_id": user_id,
@@ -148,6 +153,11 @@ def _request_row_to_payload(row) -> dict:
         "resolved_at": resolved_at or None,
         "resolved_by": resolved_by or None,
         "resolution_note": resolution_note or "",
+        "attachment_type": attachment_type or "",
+        "attachment_file_id": attachment_file_id or "",
+        "attachment_file_unique_id": attachment_file_unique_id or "",
+        "attachment_file_name": attachment_file_name or "",
+        "attachment_caption": attachment_caption or "",
     }
 
 
@@ -183,7 +193,8 @@ def sync_recent_requests_to_api(limit: int = 300):
         c.execute(
             """
             SELECT id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count,
-                   created_at, resolved_at, resolved_by, resolution_note
+                   created_at, resolved_at, resolved_by, resolution_note,
+                   attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
             FROM requests
             ORDER BY id DESC
             LIMIT ?
@@ -217,7 +228,12 @@ def init_db():
             created_at TEXT,
             resolved_at TEXT,
             resolved_by INTEGER,
-            resolution_note TEXT
+            resolution_note TEXT,
+            attachment_type TEXT DEFAULT '',
+            attachment_file_id TEXT DEFAULT '',
+            attachment_file_unique_id TEXT DEFAULT '',
+            attachment_file_name TEXT DEFAULT '',
+            attachment_caption TEXT DEFAULT ''
         )
         """
     )
@@ -248,6 +264,9 @@ def init_db():
         c.execute("ALTER TABLE requests ADD COLUMN resolved_by INTEGER")
     if "resolution_note" not in columns:
         c.execute("ALTER TABLE requests ADD COLUMN resolution_note TEXT")
+    for col_name in ("attachment_type", "attachment_file_id", "attachment_file_unique_id", "attachment_file_name", "attachment_caption"):
+        if col_name not in columns:
+            c.execute(f"ALTER TABLE requests ADD COLUMN {col_name} TEXT DEFAULT ''")
     c.execute("PRAGMA table_info(request_templates)")
     template_columns = {row[1] for row in c.fetchall()}
     if "command" not in template_columns:
@@ -273,7 +292,8 @@ def _get_request_by_id(cursor, request_id: int):
     cursor.execute(
         """
         SELECT id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count,
-               created_at, resolved_at, resolved_by, resolution_note
+               created_at, resolved_at, resolved_by, resolution_note,
+               attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
         FROM requests
         WHERE id=?
         """,
@@ -286,7 +306,8 @@ def _get_request_by_admin_message(cursor, admin_msg_id: int):
     cursor.execute(
         """
         SELECT id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count,
-               created_at, resolved_at, resolved_by, resolution_note
+               created_at, resolved_at, resolved_by, resolution_note,
+               attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
         FROM requests
         WHERE admin_msg_id=?
         """,
@@ -313,8 +334,34 @@ def _request_media_source(message):
         if not item:
             continue
         if getattr(item, "photo", None) or getattr(item, "document", None):
-            return item
+                return item
     return None
+
+
+def _request_attachment_payload(message):
+    media = _request_media_source(message)
+    if not media:
+        return {"type": "", "file_id": "", "file_unique_id": "", "file_name": "", "caption": ""}
+    if getattr(media, "photo", None):
+        photo = media.photo[-1]
+        return {
+            "type": "photo",
+            "file_id": photo.file_id,
+            "file_unique_id": getattr(photo, "file_unique_id", "") or "",
+            "file_name": "foto.jpg",
+            "caption": getattr(media, "caption", "") or "",
+        }
+    for attr, label in (("document", "document"), ("video", "video"), ("audio", "audio"), ("voice", "voice")):
+        obj = getattr(media, attr, None)
+        if obj:
+            return {
+                "type": label,
+                "file_id": getattr(obj, "file_id", "") or "",
+                "file_unique_id": getattr(obj, "file_unique_id", "") or "",
+                "file_name": getattr(obj, "file_name", "") or f"{label}.bin",
+                "caption": getattr(media, "caption", "") or "",
+            }
+    return {"type": "", "file_id": "", "file_unique_id": "", "file_name": "", "caption": ""}
 
 
 def get_quick_templates():
@@ -449,7 +496,7 @@ def _mark_request_delivery(cursor, request_id: int, admin_id: int | None, note: 
         _resolved_at,
         _resolved_by,
         resolution_note,
-    ) = row
+    ) = row[:14]
     final_charged = current_charged if charged is None else charged
     final_note = _append_note(resolution_note, note)
     if resolved:
@@ -553,7 +600,7 @@ async def _send_request_reply(context: ContextTypes.DEFAULT_TYPE, admin_id: int,
         conn.close()
         return False, "Solicitud no encontrada."
 
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row[:14]
     if status != "pending":
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
@@ -579,7 +626,7 @@ async def _send_request_reply_free(context: ContextTypes.DEFAULT_TYPE, admin_id:
     if not row:
         conn.close()
         return False, "Solicitud no encontrada."
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row[:14]
     if status != "pending":
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
@@ -602,7 +649,7 @@ async def _done_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int,
         conn.close()
         return False, "Solicitud no encontrada."
 
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row[:14]
     if status != "pending":
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
@@ -627,7 +674,7 @@ async def _close_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int
         conn.close()
         return False, "Solicitud no encontrada."
 
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row[:14]
     if status != "pending":
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
@@ -652,7 +699,7 @@ async def _fail_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int,
         conn.close()
         return False, "Solicitud no encontrada."
 
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row[:14]
     if status != "pending":
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
@@ -680,7 +727,7 @@ async def _send_template_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int
         conn.close()
         return False, "Solicitud no encontrada."
 
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row[:14]
     if status != "pending":
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
@@ -706,7 +753,7 @@ async def _reopen_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: in
     if not row:
         conn.close()
         return False, "Solicitud no encontrada."
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row[:14]
     if status == "pending":
         conn.close()
         return False, f"⚠️ La solicitud #{request_id} ya está pendiente."
@@ -732,7 +779,7 @@ async def _update_admin_message_markup(context: ContextTypes.DEFAULT_TYPE, reque
     if not row:
         return
     _sync_request_payload(_request_row_to_payload(row))
-    _, _, _, _, _, status, admin_msg_id, _, _, _, _, _, _, _ = row
+    _, _, _, _, _, status, admin_msg_id, _, _, _, _, _, _, _ = row[:14]
     admin_chat_id = primary_admin_id()
     if not admin_chat_id or not admin_msg_id:
         return
@@ -755,6 +802,7 @@ async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     cost = int(cfg.get("cost", cost))
 
     media_source = _request_media_source(message)
+    attachment = _request_attachment_payload(message)
     if message.text:
         payload = message.text
     elif message.caption:
@@ -768,10 +816,28 @@ async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     c = conn.cursor()
     c.execute(
         """
-        INSERT INTO requests (user_id, username, command, payload, status, cost, charged, delivery_count, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO requests (
+            user_id, username, command, payload, status, cost, charged, delivery_count, created_at,
+            attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (user.id, user.username, command, payload, "pending", cost, 0, 0, now_iso()),
+        (
+            user.id,
+            user.username,
+            command,
+            payload,
+            "pending",
+            cost,
+            0,
+            0,
+            now_iso(),
+            attachment.get("type", ""),
+            attachment.get("file_id", ""),
+            attachment.get("file_unique_id", ""),
+            attachment.get("file_name", ""),
+            attachment.get("caption", ""),
+        ),
     )
     request_id = c.lastrowid
     conn.commit()
@@ -873,7 +939,7 @@ async def forward_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
         return
 
-    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row
+    request_id, user_id, username, command, payload, status, admin_msg_id, cost, charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note = row[:14]
     if status != "pending":
         await update.message.reply_text(f"⚠️ La solicitud #{request_id} ya está en estado {status}.")
         conn.close()

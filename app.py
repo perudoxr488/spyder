@@ -545,10 +545,20 @@ def init_requests_db():
             created_at TEXT,
             resolved_at TEXT,
             resolved_by INTEGER,
-            resolution_note TEXT
+            resolution_note TEXT,
+            attachment_type TEXT DEFAULT '',
+            attachment_file_id TEXT DEFAULT '',
+            attachment_file_unique_id TEXT DEFAULT '',
+            attachment_file_name TEXT DEFAULT '',
+            attachment_caption TEXT DEFAULT ''
         )
         """
     )
+    cur.execute("PRAGMA table_info(requests)")
+    request_columns = {row[1] for row in cur.fetchall()}
+    for col_name in ("attachment_type", "attachment_file_id", "attachment_file_unique_id", "attachment_file_name", "attachment_caption"):
+        if col_name not in request_columns:
+            cur.execute(f"ALTER TABLE requests ADD COLUMN {col_name} TEXT DEFAULT ''")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS request_templates (
@@ -1255,7 +1265,8 @@ def get_request_items(status: str | None = None, limit: int = 50):
             cur.execute(
                 """
                 SELECT id, user_id, username, command, payload, status, admin_msg_id, cost,
-                       created_at, resolved_at, resolved_by, resolution_note
+                       created_at, resolved_at, resolved_by, resolution_note,
+                       attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
                 FROM requests
                 WHERE status = ?
                 ORDER BY id DESC
@@ -1267,7 +1278,8 @@ def get_request_items(status: str | None = None, limit: int = 50):
             cur.execute(
                 """
                 SELECT id, user_id, username, command, payload, status, admin_msg_id, cost,
-                       created_at, resolved_at, resolved_by, resolution_note
+                       created_at, resolved_at, resolved_by, resolution_note,
+                       attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
                 FROM requests
                 ORDER BY id DESC
                 LIMIT ?
@@ -1326,13 +1338,15 @@ def get_request_items_filtered(
         params.extend([like, like, like, like, like, like, like])
     where = "WHERE " + " AND ".join(clauses) if clauses else ""
     try:
+        init_requests_db()
         conn = get_conn(REQUESTS_DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute(
             f"""
             SELECT id, user_id, username, command, payload, status, admin_msg_id, cost,
-                   created_at, resolved_at, resolved_by, resolution_note
+                   created_at, resolved_at, resolved_by, resolution_note,
+                   attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
             FROM requests
             {where}
             ORDER BY id DESC
@@ -1663,6 +1677,52 @@ def update_request_status_from_panel(request_id: int, action: str, note: str = "
         return False, f"No se pudo actualizar la solicitud #{request_id}."
 
 
+@app.route("/admin/request/<int:request_id>/attachment", methods=["GET"])
+def admin_request_attachment(request_id: int):
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR", "SOPORTE")
+    if gate:
+        return gate
+    if not TELEGRAM_TOKEN:
+        return redirect(url_for("admin_panel", section="solicitudes", flash="TOKEN_BOT no disponible para abrir adjuntos."))
+    try:
+        init_requests_db()
+        conn = get_conn(REQUESTS_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT attachment_file_id, attachment_file_name, attachment_type
+            FROM requests
+            WHERE id = ?
+            """,
+            (request_id,),
+        )
+        row = cur.fetchone()
+        conn.close()
+        if not row or not (row["attachment_file_id"] or "").strip():
+            return redirect(url_for("admin_panel", section="solicitudes", flash=f"Solicitud #{request_id} no tiene adjunto."))
+        get_file_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={_urlparse.quote(row['attachment_file_id'])}"
+        with _urlreq.urlopen(get_file_url, timeout=15) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+        file_path = ((payload.get("result") or {}).get("file_path") or "").strip()
+        if not file_path:
+            return redirect(url_for("admin_panel", section="solicitudes", flash="Telegram no devolvió ruta del adjunto."))
+        file_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
+        with _urlreq.urlopen(file_url, timeout=30) as resp:
+            body = resp.read()
+            content_type = resp.headers.get("Content-Type") or "application/octet-stream"
+        filename = (row["attachment_file_name"] or os.path.basename(file_path) or f"solicitud-{request_id}.bin").replace('"', "")
+        log_audit_event("request.attachment", str(request_id), filename)
+        return Response(
+            body,
+            mimetype=content_type,
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        )
+    except Exception as exc:
+        log_error_event(exc)
+        return redirect(url_for("admin_panel", section="solicitudes", flash=f"No se pudo abrir el adjunto de #{request_id}."))
+
+
 def get_admin_users(q: str = "", status: str = "", plan: str = "", limit: int = 200):
     q = (q or "").strip().lower()
     status = (status or "").strip().upper()
@@ -1921,13 +1981,15 @@ def get_user_request_items(user_id: str, limit: int = 80):
     if not user_id:
         return []
     try:
+        init_requests_db()
         conn = get_conn(REQUESTS_DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute(
             """
             SELECT id, user_id, username, command, payload, status, cost, charged,
-                   delivery_count, created_at, resolved_at, resolved_by, resolution_note
+                   delivery_count, created_at, resolved_at, resolved_by, resolution_note,
+                   attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
             FROM requests
             WHERE CAST(user_id AS TEXT) = ?
             ORDER BY id DESC
@@ -2040,7 +2102,8 @@ def get_global_search_results(q: str, limit: int = 25):
         cur.execute(
             """
             SELECT id, user_id, username, command, payload, status, cost,
-                   created_at, resolved_at, resolved_by, resolution_note
+                   created_at, resolved_at, resolved_by, resolution_note,
+                   attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
             FROM requests
             WHERE LOWER(CAST(user_id AS TEXT)) LIKE ?
                OR LOWER(COALESCE(username, '')) LIKE ?
@@ -4097,6 +4160,57 @@ def admin_save_command():
     return redirect(url_for("admin_panel", section="comandos", flash=f"Comando /{slug} guardado."))
 
 
+@app.route("/admin/command/duplicate", methods=["POST"])
+def admin_duplicate_command():
+    gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
+    if gate:
+        return gate
+    source_slug = (request.form.get("source_slug") or "").strip().lower()
+    new_slug = (request.form.get("new_slug") or "").strip().lower().lstrip("/")
+    new_name = (request.form.get("new_name") or "").strip()
+    if not source_slug or not new_slug:
+        return redirect(url_for("admin_panel", section="comandos", flash="Falta slug origen o destino para duplicar."))
+    conn = get_conn(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT slug, name, description, category_id, cost, is_active, sort_order, usage_hint
+        FROM command_catalog
+        WHERE slug = ?
+        """,
+        (source_slug,),
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return redirect(url_for("admin_panel", section="comandos", flash=f"No encontré /{source_slug} para duplicar."))
+    cur.execute("SELECT 1 FROM command_catalog WHERE slug = ?", (new_slug,))
+    if cur.fetchone():
+        conn.close()
+        return redirect(url_for("admin_panel", section="comandos", flash=f"Ya existe /{new_slug}."))
+    cur.execute(
+        """
+        INSERT INTO command_catalog (slug, name, description, category_id, cost, is_active, sort_order, usage_hint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            new_slug,
+            new_name or f"{row['name']} copia",
+            row["description"],
+            row["category_id"],
+            row["cost"],
+            row["is_active"],
+            int(row["sort_order"] or 0) + 1,
+            row["usage_hint"],
+        ),
+    )
+    conn.commit()
+    conn.close()
+    log_audit_event("command.duplicate", new_slug, f"source={source_slug}")
+    return redirect(url_for("admin_panel", section="comandos", flash=f"Comando /{source_slug} duplicado como /{new_slug}."))
+
+
 @app.route("/admin/command/import", methods=["POST"])
 def admin_import_commands():
     gate = require_panel_roles("FUNDADOR", "CO-FUNDADOR")
@@ -4318,7 +4432,11 @@ def admin_export_requests_csv():
     return _csv_response(
         "spidersyn-solicitudes.csv",
         rows,
-        ["id", "user_id", "username", "command", "payload", "status", "cost", "created_at", "resolved_at", "resolved_by", "resolution_note"],
+        [
+            "id", "user_id", "username", "command", "payload", "status", "cost",
+            "created_at", "resolved_at", "resolved_by", "resolution_note",
+            "attachment_type", "attachment_file_id", "attachment_file_name", "attachment_caption",
+        ],
     )
 
 
@@ -4973,9 +5091,10 @@ def internal_request_upsert():
         """
         INSERT INTO requests (
             id, user_id, username, command, payload, status, admin_msg_id, cost,
-            charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note
+            charged, delivery_count, created_at, resolved_at, resolved_by, resolution_note,
+            attachment_type, attachment_file_id, attachment_file_unique_id, attachment_file_name, attachment_caption
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             user_id = excluded.user_id,
             username = excluded.username,
@@ -4989,7 +5108,12 @@ def internal_request_upsert():
             created_at = excluded.created_at,
             resolved_at = excluded.resolved_at,
             resolved_by = excluded.resolved_by,
-            resolution_note = excluded.resolution_note
+            resolution_note = excluded.resolution_note,
+            attachment_type = excluded.attachment_type,
+            attachment_file_id = excluded.attachment_file_id,
+            attachment_file_unique_id = excluded.attachment_file_unique_id,
+            attachment_file_name = excluded.attachment_file_name,
+            attachment_caption = excluded.attachment_caption
         """,
         (
             request_id,
@@ -5006,6 +5130,11 @@ def internal_request_upsert():
             payload.get("resolved_at") or None,
             payload.get("resolved_by") or None,
             payload.get("resolution_note") or "",
+            payload.get("attachment_type") or "",
+            payload.get("attachment_file_id") or "",
+            payload.get("attachment_file_unique_id") or "",
+            payload.get("attachment_file_name") or "",
+            payload.get("attachment_caption") or "",
         ),
     )
     conn.commit()
