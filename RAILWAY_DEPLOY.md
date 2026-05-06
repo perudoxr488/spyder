@@ -20,10 +20,10 @@ Pon estas variables en ambos servicios:
 
 ```text
 SPIDERSYN_INTERNAL_API_KEY=pon_un_secret_largo
-PANEL_SECRET=pon_otro_secret_largo
-PANEL_USER=admin
-PANEL_PASSWORD=una_clave_larga
-PANEL_PUBLIC=true
+SPIDERSYN_PANEL_SECRET=pon_otro_secret_largo
+SPIDERSYN_PANEL_USER=admin
+SPIDERSYN_PANEL_PASSWORD=una_clave_larga
+SPIDERSYN_PANEL_PUBLIC=true
 ADMIN_ID=tu_id_de_telegram
 TOKEN_BOT=tu_token_del_bot
 ```
