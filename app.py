@@ -743,6 +743,22 @@ def _command_validation_from_form():
     return validation
 
 
+def _validation_label(validation_type: str | None):
+    labels = {
+        "none": "Sin validación",
+        "dni": "DNI",
+        "digits": "Números",
+        "number": "Números",
+        "letters": "Letras",
+        "regex": "Regex",
+        "photo": "Foto/archivo",
+        "media": "Foto/archivo",
+        "photo_text": "Foto + texto",
+        "media_text": "Foto + texto",
+    }
+    return labels.get((validation_type or "none").strip().lower(), validation_type or "Sin validación")
+
+
 def _hydrate_command_row(row: dict):
     raw_description = row.get("description") or ""
     description, validation = _split_command_description(raw_description)
@@ -756,6 +772,7 @@ def _hydrate_command_row(row: dict):
     row["validation_regex"] = validation.get("regex") or ""
     row["validation_empty_message"] = validation.get("empty_message") or ""
     row["validation_invalid_message"] = validation.get("invalid_message") or ""
+    row["validation_label"] = _validation_label(row["validation_type"])
     return row
 
 
@@ -950,6 +967,11 @@ def parse_bulk_command_rows(raw_text: str):
         slug, name, cost_raw, usage_hint, description = parts[:5]
         status_raw = parts[5].strip().lower() if len(parts) >= 6 else "1"
         order_raw = parts[6].strip() if len(parts) >= 7 else "0"
+        validation_type = parts[7].strip().lower() if len(parts) >= 8 else "none"
+        validation_length = parts[8].strip() if len(parts) >= 9 else ""
+        validation_regex = parts[9].strip() if len(parts) >= 10 else ""
+        validation_empty = parts[10].strip() if len(parts) >= 11 else ""
+        validation_invalid = parts[11].strip() if len(parts) >= 12 else ""
         if not slug or not name:
             errors.append(f"Línea {idx}: slug y nombre son obligatorios")
             continue
@@ -964,13 +986,28 @@ def parse_bulk_command_rows(raw_text: str):
         except Exception:
             errors.append(f"Línea {idx}: orden inválido '{order_raw}'")
             continue
+        validation = {}
+        if validation_type and validation_type != "none":
+            allowed_types = {"digits", "number", "letters", "dni", "regex", "photo", "photo_text", "media", "media_text"}
+            if validation_type not in allowed_types:
+                errors.append(f"Línea {idx}: validación inválida '{validation_type}'")
+                continue
+            validation["type"] = validation_type
+        if validation_length:
+            validation["length"] = validation_length
+        if validation_regex:
+            validation["regex"] = validation_regex
+        if validation_empty:
+            validation["empty_message"] = validation_empty
+        if validation_invalid:
+            validation["invalid_message"] = validation_invalid
         rows.append(
             {
                 "slug": slug.lower(),
                 "name": name,
                 "cost": cost,
                 "usage_hint": usage_hint,
-                "description": description,
+                "description": _pack_command_description(description, validation),
                 "is_active": is_active,
                 "sort_order": sort_order,
             }
@@ -1316,6 +1353,67 @@ def get_request_templates():
     except Exception:
         items = []
     return items
+
+
+def get_request_template_by_key(key: str):
+    key = (key or "").strip().lower()
+    if not key:
+        return None
+    try:
+        conn = get_conn(REQUESTS_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT key, text, billable FROM request_templates WHERE key = ?", (key,))
+        row = cur.fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def send_request_template_from_panel(request_id: int, template_key: str) -> tuple[bool, str]:
+    template = get_request_template_by_key(template_key)
+    if not template:
+        return False, "Plantilla no encontrada."
+    try:
+        init_requests_db()
+        conn = get_conn(REQUESTS_DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT id, user_id, command, status FROM requests WHERE id = ?", (request_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return False, f"Solicitud #{request_id} no encontrada."
+        if (row[3] or "") != "pending":
+            conn.close()
+            return False, f"Solicitud #{request_id} no está pendiente."
+        text = str(template.get("text") or "").strip()
+        user_text = (
+            f"<b>#SPIDERSYN ⇒ RESPUESTA A SOLICITUD #{request_id}</b>\n\n"
+            f"Comando: <code>/{html_escape(row[2] or '')}</code>\n\n"
+            f"{html_escape(text)}"
+        )
+        sent = send_telegram_message_sync(row[1], user_text)
+        if not sent:
+            conn.close()
+            return False, "No se pudo enviar el mensaje al usuario."
+        note = f"[template:{template_key}] {text}"
+        cur.execute(
+            """
+            UPDATE requests
+            SET delivery_count = COALESCE(delivery_count, 0) + 1,
+                resolution_note = ?
+            WHERE id = ?
+            """,
+            (note, request_id),
+        )
+        conn.commit()
+        conn.close()
+        log_audit_event("request.template", str(request_id), f"template={template_key}")
+        return True, f"Plantilla {template_key} enviada para solicitud #{request_id}."
+    except Exception as exc:
+        log_error_event(exc)
+        return False, f"No se pudo enviar la plantilla a solicitud #{request_id}."
 
 
 def get_user_key_redemptions(user_id: str, limit: int = 80):
@@ -4153,6 +4251,10 @@ def admin_request_action():
     note = (request.form.get("note") or "").strip()
     if request_id <= 0:
         flash = "Solicitud inválida."
+    elif action == "template":
+        ok, flash = send_request_template_from_panel(request_id, request.form.get("template_key", ""))
+        if not ok:
+            flash = flash or "No se pudo enviar la plantilla."
     else:
         ok, flash = update_request_status_from_panel(request_id, action, note)
         if not ok:

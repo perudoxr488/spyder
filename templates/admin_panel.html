@@ -737,6 +737,15 @@
                     <input type="hidden" name="rto" value="{{ request_to }}">
                     <input name="note" placeholder="Nota interna">
                     <div class="inline">
+                      <select name="template_key">
+                        <option value="">Plantilla rápida</option>
+                        {% for tpl in request_templates %}
+                        <option value="{{ tpl.key }}">{{ tpl.key }}{% if tpl.billable %} · cobra{% endif %}</option>
+                        {% endfor %}
+                      </select>
+                      <button type="submit" name="action" value="template">Enviar plantilla</button>
+                    </div>
+                    <div class="inline">
                       <button type="submit" name="action" value="resolve">Resolver</button>
                       <button type="submit" name="action" value="close">Cerrar</button>
                       <button type="submit" name="action" value="fail">Fallida</button>
@@ -806,6 +815,17 @@
       </div>
       <div class="card">
         <h2>Editar plantillas</h2>
+        <form method="post" action="{{ url_for('admin_save_request_template') }}" class="stack" style="margin-bottom:14px;">
+          <div class="inline">
+            <input name="key" placeholder="clave, ej. completado_nm" required>
+            <select name="billable">
+              <option value="0">Sin cobro</option>
+              <option value="1">Con cobro</option>
+            </select>
+          </div>
+          <textarea name="text" placeholder="Texto de la plantilla" required></textarea>
+          <button type="submit">Crear plantilla</button>
+        </form>
         <table>
           <thead><tr><th>Clave</th><th>Texto</th><th>Cobro</th><th>Guardar</th></tr></thead>
           <tbody>
@@ -1029,10 +1049,10 @@
                 {% endfor %}
               </select>
               <label>Pega una línea por comando</label>
-              <textarea name="bulk_commands" placeholder="minsa;;Descanso MINSA;;25;;/minsa DNI|CONTINGENCIA|DIAS;;Solicitud manual de descanso&#10;const;;Constancia MINSA;;25;;/const DNI|DIAS|DIAGNOSTICO;;Solicitud manual de constancia"></textarea>
+              <textarea name="bulk_commands" placeholder="minsa;;Descanso MINSA;;25;;/minsa DNI|CONTINGENCIA|DIAS;;Solicitud manual de descanso&#10;fotoid;;Foto ID;;10;;/fotoid + foto;;Solicitud con foto;;1;;20;;photo&#10;rucvip;;RUC VIP;;8;;/rucvip 20123456789;;Consulta RUC;;1;;30;;digits;;11"></textarea>
               <p class="small">Formato recomendado: <code>slug;;nombre;;costo;;usage_hint;;info</code></p>
               <p class="small">Si repites un <code>slug</code>, no lo duplica: lo actualiza con la nueva categoría, costo, uso e info.</p>
-              <p class="small">Opcional: puedes agregar <code>;;estado;;orden</code> al final. Ejemplo: <code>minsa;;Descanso MINSA;;25;;/minsa DNI|CONTINGENCIA|DIAS;;Solicitud manual;;1;;10</code></p>
+              <p class="small">Opcional: agrega <code>;;estado;;orden;;validación;;longitud;;regex;;msg vacío;;msg inválido</code>. Validaciones: <code>dni</code>, <code>digits</code>, <code>letters</code>, <code>regex</code>, <code>photo</code>, <code>photo_text</code>.</p>
               <button type="submit">Importar bloque</button>
             </form>
           </div>
@@ -1099,7 +1119,7 @@
             </div>
           </div>
           <table>
-            <thead><tr><th>Comando</th><th>Categoría</th><th>Costo</th><th>Estado</th><th>Editar</th></tr></thead>
+            <thead><tr><th>Comando</th><th>Categoría</th><th>Validación</th><th>Costo</th><th>Estado</th><th>Editar</th></tr></thead>
             <tbody>
               {% for cmd in filtered_commands %}
               <tr>
@@ -1108,6 +1128,7 @@
                   <div class="small">{{ cmd.description or cmd.usage_hint or '—' }}</div>
                 </td>
                 <td>{{ cmd.category_name or 'Sin categoría' }}</td>
+                <td><span class="pill">{{ cmd.validation_label or 'Sin validación' }}</span></td>
                 <td>{{ cmd.cost }}</td>
                 <td>{% if cmd.is_active %}<span class="badge ok">Activo</span>{% else %}<span class="badge off">Inactivo</span>{% endif %}</td>
                 <td>
@@ -1161,7 +1182,7 @@
               </tr>
               {% endfor %}
               {% if not filtered_commands %}
-              <tr><td colspan="5">No hay comandos que coincidan con el filtro actual.</td></tr>
+              <tr><td colspan="6">No hay comandos que coincidan con el filtro actual.</td></tr>
               {% endif %}
             </tbody>
           </table>
