@@ -488,7 +488,7 @@
           <h2>Crear compra manual</h2>
           <form method="post" action="{{ url_for('admin_create_purchase') }}" class="inline">
             <input name="id_tg" value="{{ purchase_user }}" placeholder="ID usuario" required>
-            <input name="vendedor" value="{{ purchase_vendor or panel_user }}" placeholder="Vendedor">
+            <input name="vendedor" value="{{ seller_vendor_scope or purchase_vendor or panel_user }}" placeholder="Vendedor" {% if seller_vendor_scope %}readonly{% endif %}>
             <input name="compro" placeholder="Ej: CREDITOS +100 / PLAN 30 DIAS" required>
             <select name="estado">
               {% for status in purchase_statuses %}
@@ -522,7 +522,7 @@
           <form method="get" action="{{ url_for('admin_panel') }}" class="inline" style="margin-bottom:14px;">
             <input type="hidden" name="section" value="compras">
             <input name="purchase_user" value="{{ purchase_user }}" placeholder="ID usuario">
-            <input name="purchase_vendor" value="{{ purchase_vendor }}" placeholder="ID vendedor">
+            <input name="purchase_vendor" value="{{ purchase_vendor }}" placeholder="ID vendedor" {% if seller_vendor_scope %}readonly{% endif %}>
             <input name="purchase_from" type="date" value="{{ purchase_from }}">
             <input name="purchase_to" type="date" value="{{ purchase_to }}">
             <select name="purchase_kind">

@@ -1072,7 +1072,8 @@ def paginate_items(items: list[dict], page: int, per_page: int = 12):
     return items[start:end], page, total_pages, total
 
 
-def get_dashboard_snapshot():
+def get_dashboard_snapshot(vendor_id: str = ""):
+    vendor_id = (vendor_id or "").strip()
     now = now_utc()
     cutoffs = {
         "today": now.replace(hour=0, minute=0, second=0, microsecond=0),
@@ -1186,20 +1187,31 @@ def get_dashboard_snapshot():
     try:
         conn = get_conn(COMPRAS_DB_PATH)
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM compras")
+        if vendor_id:
+            cur.execute("SELECT COUNT(*) FROM compras WHERE VENDEDOR = ?", (vendor_id,))
+        else:
+            cur.execute("SELECT COUNT(*) FROM compras")
         data["ventas"] = cur.fetchone()[0]
         for key, start in cutoff_iso.items():
-            cur.execute("SELECT COUNT(*) FROM compras WHERE FECHA >= ?", (start,))
+            if vendor_id:
+                cur.execute("SELECT COUNT(*) FROM compras WHERE FECHA >= ? AND VENDEDOR = ?", (start, vendor_id))
+            else:
+                cur.execute("SELECT COUNT(*) FROM compras WHERE FECHA >= ?", (start,))
             data["periods"][key]["ventas"] = cur.fetchone()[0]
+            period_where = "WHERE FECHA >= ?"
+            period_params = [start]
+            if vendor_id:
+                period_where += " AND VENDEDOR = ?"
+                period_params.append(vendor_id)
             cur.execute(
-                """
+                f"""
                 SELECT COUNT(*) total,
                        SUM(CASE WHEN UPPER(COMPRO) LIKE '%CRED%' OR UPPER(COMPRO) LIKE '%KEY:CREDITOS%' THEN 1 ELSE 0 END) creditos,
                        SUM(CASE WHEN UPPER(COMPRO) LIKE '%DIA%' OR UPPER(COMPRO) LIKE '%KEY:DIAS%' THEN 1 ELSE 0 END) dias
                 FROM compras
-                WHERE FECHA >= ?
+                {period_where}
                 """,
-                (start,),
+                tuple(period_params),
             )
             r = cur.fetchone()
             data["ventas_por_periodo"].append({
@@ -1208,15 +1220,20 @@ def get_dashboard_snapshot():
                 "creditos": int(r[1] or 0),
                 "dias": int(r[2] or 0),
             })
+        purchase_where = "WHERE VENDEDOR = ?" if vendor_id else ""
+        purchase_params = (vendor_id,) if vendor_id else ()
         cur.execute(
-            """
+            f"""
             SELECT
                 SUM(CASE WHEN UPPER(COMPRO) LIKE '%CRED%' OR UPPER(COMPRO) LIKE '%KEY:CREDITOS%' THEN 1 ELSE 0 END) creditos,
                 SUM(CASE WHEN UPPER(COMPRO) LIKE '%DIA%' OR UPPER(COMPRO) LIKE '%KEY:DIAS%' THEN 1 ELSE 0 END) dias,
                 SUM(CASE WHEN UPPER(COMPRO) LIKE 'KEY:%' THEN 1 ELSE 0 END) keys,
                 COUNT(*) total
             FROM compras
+            {purchase_where}
             """
+            ,
+            purchase_params,
         )
         r = cur.fetchone()
         total = int(r[3] or 0)
@@ -1227,25 +1244,33 @@ def get_dashboard_snapshot():
             {"tipo": "Otros", "total": max(0, total - int(r[0] or 0) - int(r[1] or 0))},
         ]
         cur.execute(
-            """
+            f"""
             SELECT COALESCE(NULLIF(TRIM(VENDEDOR), ''), 'SIN VENDEDOR') vendedor, COUNT(*) total
             FROM compras
+            {purchase_where}
             GROUP BY COALESCE(NULLIF(TRIM(VENDEDOR), ''), 'SIN VENDEDOR')
             ORDER BY total DESC
             LIMIT 10
             """
+            ,
+            purchase_params,
         )
         data["top_vendedores"] = [{"vendedor": r[0], "total": r[1]} for r in cur.fetchall()]
+        day_where = "WHERE FECHA >= ?"
+        day_params = [cutoff_iso["last_30"]]
+        if vendor_id:
+            day_where += " AND VENDEDOR = ?"
+            day_params.append(vendor_id)
         cur.execute(
-            """
+            f"""
             SELECT substr(FECHA, 1, 10) dia, COUNT(*) total
             FROM compras
-            WHERE FECHA >= ?
+            {day_where}
             GROUP BY substr(FECHA, 1, 10)
             ORDER BY dia DESC
             LIMIT 14
             """,
-            (cutoff_iso["last_30"],),
+            tuple(day_params),
         )
         data["ventas_por_dia"] = [{"dia": r[0], "total": r[1]} for r in cur.fetchall()]
         conn.close()
@@ -1768,23 +1793,29 @@ def get_admin_users(q: str = "", status: str = "", plan: str = "", limit: int = 
     return items
 
 
-def get_vendor_sales_summary(q: str = "", limit: int = 200):
+def get_vendor_sales_summary(q: str = "", limit: int = 200, vendor_id: str = ""):
     q = (q or "").strip().lower()
+    vendor_id = (vendor_id or "").strip()
     items = []
     try:
         conn = get_conn(COMPRAS_DB_PATH)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        where = "WHERE VENDEDOR IS NOT NULL AND TRIM(VENDEDOR) != ''"
+        params = []
+        if vendor_id:
+            where += " AND VENDEDOR = ?"
+            params.append(vendor_id)
         cur.execute(
-            """
+            f"""
             SELECT VENDEDOR, COUNT(*) AS total_ventas, MAX(FECHA) AS ultima_venta
             FROM compras
-            WHERE VENDEDOR IS NOT NULL AND TRIM(VENDEDOR) != ''
+            {where}
             GROUP BY VENDEDOR
             ORDER BY total_ventas DESC, ultima_venta DESC
             LIMIT ?
             """,
-            (limit,),
+            (*params, limit),
         )
         rows = [dict(row) for row in cur.fetchall()]
         conn.close()
@@ -1876,7 +1907,7 @@ PANEL_NAV_ITEMS = [
 ]
 
 
-def get_admin_purchases(user_id: str = "", vendor_id: str = "", date_from: str = "", date_to: str = "", kind: str = "", status: str = "", limit: int = 300):
+def get_admin_purchases(user_id: str = "", vendor_id: str = "", date_from: str = "", date_to: str = "", kind: str = "", status: str = "", limit: int = 300, exact_vendor: bool = False):
     clauses = []
     params = []
     user_id = (user_id or "").strip()
@@ -1888,8 +1919,8 @@ def get_admin_purchases(user_id: str = "", vendor_id: str = "", date_from: str =
         clauses.append("ID_TG LIKE ?")
         params.append(f"%{user_id}%")
     if vendor_id:
-        clauses.append("VENDEDOR LIKE ?")
-        params.append(f"%{vendor_id}%")
+        clauses.append("VENDEDOR = ?" if exact_vendor else "VENDEDOR LIKE ?")
+        params.append(vendor_id if exact_vendor else f"%{vendor_id}%")
     if start_iso:
         clauses.append("FECHA >= ?")
         params.append(start_iso)
@@ -2461,6 +2492,14 @@ def require_panel_login():
 
 def panel_current_role() -> str:
     return (session.get("panel_role") or "FUNDADOR").strip().upper()
+
+
+def panel_current_user() -> str:
+    return (session.get("panel_user") or PANEL_USER or "panel").strip()
+
+
+def panel_seller_vendor_scope() -> str:
+    return panel_current_user() if panel_current_role() == "SELLER" else ""
 
 
 def panel_can_access_section(section: str, role: str | None = None) -> bool:
@@ -3899,6 +3938,7 @@ def admin_panel():
     panel_role = panel_current_role()
     if not panel_can_access_section(active_section, panel_role):
         return redirect(url_for("admin_panel", section="resumen", flash="No tienes permiso para esa sección."))
+    seller_vendor_scope = panel_seller_vendor_scope()
     categories = get_catalog_categories()
     commands = get_catalog_commands()
     settings = get_panel_settings()
@@ -3913,6 +3953,8 @@ def admin_panel():
     user_profile = get_user_profile_snapshot(profile_user_id) if profile_user_id else {"user": None, "purchases": [], "history": [], "requests": [], "keys": [], "activity": []}
     purchase_user = request.args.get("purchase_user", "")
     purchase_vendor = request.args.get("purchase_vendor", "")
+    if seller_vendor_scope:
+        purchase_vendor = seller_vendor_scope
     purchase_from = request.args.get("purchase_from", "")
     purchase_to = request.args.get("purchase_to", "")
     purchase_kind = request.args.get("purchase_kind", "")
@@ -3925,6 +3967,7 @@ def admin_panel():
         kind=purchase_kind,
         status=purchase_status,
         limit=300,
+        exact_vendor=bool(seller_vendor_scope),
     )
     history_user = request.args.get("history_user", "")
     history_command = request.args.get("history_command", "")
@@ -3944,7 +3987,10 @@ def admin_panel():
     history_commands = sorted({(row.get("consulta") or "").strip().lower() for row in get_admin_history(limit=1000) if row.get("consulta")})
     vendor_q = request.args.get("vq", "")
     selected_vendor = (request.args.get("vendor") or "").strip()
-    vendor_summary = get_vendor_sales_summary(q=vendor_q, limit=250)
+    if seller_vendor_scope:
+        vendor_q = ""
+        selected_vendor = seller_vendor_scope
+    vendor_summary = get_vendor_sales_summary(q=vendor_q, limit=250, vendor_id=seller_vendor_scope)
     if not selected_vendor and vendor_summary:
         selected_vendor = vendor_summary[0]["vendedor"]
     vendor_detail = get_vendor_sales_detail(selected_vendor, limit=120) if selected_vendor else []
@@ -4010,13 +4056,14 @@ def admin_panel():
         selected_vendor=selected_vendor,
         settings=settings,
         previews=build_panel_previews(settings, buy_packages, commands),
-        dashboard=get_dashboard_snapshot(),
+        dashboard=get_dashboard_snapshot(vendor_id=seller_vendor_scope),
         global_q=global_q,
         global_results=global_results,
         storage=get_storage_snapshot(),
         daily_backups=get_daily_backups(limit=10),
         panel_role=panel_role,
         panel_user=session.get("panel_user") or PANEL_USER,
+        seller_vendor_scope=seller_vendor_scope,
         panel_nav_items=panel_nav_items_for_role(panel_role),
         panel_accounts=get_panel_accounts(),
         panel_roles=sorted(PANEL_ROLES),
@@ -4663,14 +4710,16 @@ def admin_export_purchases_csv():
     gate = require_panel_login()
     if gate:
         return gate
+    seller_vendor = panel_seller_vendor_scope()
     rows = get_admin_purchases(
         user_id=request.args.get("purchase_user", ""),
-        vendor_id=request.args.get("purchase_vendor", ""),
+        vendor_id=seller_vendor or request.args.get("purchase_vendor", ""),
         date_from=request.args.get("purchase_from", ""),
         date_to=request.args.get("purchase_to", ""),
         kind=request.args.get("purchase_kind", ""),
         status=request.args.get("purchase_status", ""),
         limit=10000,
+        exact_vendor=bool(seller_vendor),
     )
     return _csv_response("spidersyn-compras.csv", rows, ["ID", "ID_TG", "VENDEDOR", "FECHA", "COMPRO", "ESTADO", "NOTAS", "COMPROBANTE"])
 
@@ -4680,9 +4729,10 @@ def admin_export_purchases_json():
     gate = require_panel_login()
     if gate:
         return gate
+    seller_vendor = panel_seller_vendor_scope()
     filters = {
         "purchase_user": request.args.get("purchase_user", ""),
-        "purchase_vendor": request.args.get("purchase_vendor", ""),
+        "purchase_vendor": seller_vendor or request.args.get("purchase_vendor", ""),
         "purchase_from": request.args.get("purchase_from", ""),
         "purchase_to": request.args.get("purchase_to", ""),
         "purchase_kind": request.args.get("purchase_kind", ""),
@@ -4696,6 +4746,7 @@ def admin_export_purchases_json():
         kind=filters["purchase_kind"],
         status=filters["purchase_status"],
         limit=10000,
+        exact_vendor=bool(seller_vendor),
     )
     return _json_download_response(
         "spidersyn-compras.json",
@@ -4709,7 +4760,10 @@ def admin_create_purchase():
     if gate:
         return gate
     id_tg = (request.form.get("id_tg") or "").strip()
-    vendedor = (request.form.get("vendedor") or session.get("panel_user") or PANEL_USER).strip()
+    vendedor = (request.form.get("vendedor") or panel_current_user()).strip()
+    seller_vendor = panel_seller_vendor_scope()
+    if seller_vendor:
+        vendedor = seller_vendor
     compro = (request.form.get("compro") or "").strip()
     estado = (request.form.get("estado") or "ENTREGADA").strip().upper()
     notas = (request.form.get("notas") or "").strip()
@@ -4738,8 +4792,15 @@ def admin_update_purchase():
         pid = int(purchase_id)
     except Exception:
         return redirect(url_for("admin_panel", section="compras", flash="Compra inválida."))
+    seller_vendor = panel_seller_vendor_scope()
     conn = get_conn(COMPRAS_DB_PATH)
     cur = conn.cursor()
+    if seller_vendor:
+        cur.execute("SELECT VENDEDOR FROM compras WHERE ID = ?", (pid,))
+        row = cur.fetchone()
+        if not row or str(row[0] or "").strip() != seller_vendor:
+            conn.close()
+            return redirect(url_for("admin_panel", section="compras", flash="No puedes editar ventas de otro vendedor."))
     cur.execute(
         """
         UPDATE compras
