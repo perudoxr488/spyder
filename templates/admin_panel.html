@@ -72,6 +72,20 @@
     .command-edit[open] summary { margin-bottom:10px; }
     .command-edit form { min-width:380px; display:grid; gap:8px; }
     .command-edit textarea { min-height:64px; }
+    .alert-card { border-color:color-mix(in srgb, var(--danger) 45%, var(--line)); background:color-mix(in srgb, var(--danger) 10%, var(--card)); }
+    .alert-card strong { color:var(--danger); }
+    .compact-profile { display:grid; grid-template-columns:1.2fr 1fr; gap:14px; align-items:start; }
+    .compact-profile .summary { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+    .profile-facts { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
+    .profile-fact { padding:10px 12px; border-radius:12px; background:var(--surface); border:1px solid var(--line); }
+    .profile-fact strong { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+    .panel-details summary { cursor:pointer; font-weight:800; list-style:none; display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .panel-details summary::-webkit-details-marker { display:none; }
+    .panel-details summary::after { content:"Abrir"; font-size:12px; font-weight:700; color:var(--accent); }
+    .panel-details[open] summary::after { content:"Cerrar"; }
+    .sales-strip { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; }
+    .sales-card { padding:14px; border-radius:14px; background:var(--surface); border:1px solid var(--line); }
+    .sales-card h3 { font-size:26px; margin:6px 0 2px; }
     body.dark .hero { background:linear-gradient(180deg, rgba(16,25,23,.95) 0%, rgba(15,23,21,.9) 100%); }
     body.dark .card { background:linear-gradient(180deg, rgba(17,26,24,.98) 0%, rgba(15,22,21,.95) 100%); }
     body.dark .side-link { background:linear-gradient(180deg, rgba(18,28,26,.96) 0%, rgba(15,23,21,.94) 100%); }
@@ -89,8 +103,8 @@
     body.dark button.secondary { color:#2d1c08; }
     body.dark input::placeholder, body.dark textarea::placeholder { color:#7f938a; }
     body.dark .telegram-bubble { border:1px solid rgba(255,255,255,.06); }
-    @media (max-width: 1100px) { .layout, .grid, .section-grid, .summary, .three, .preview-grid, .command-tools { grid-template-columns:1fr; } .sidebar { position:static; } .toolbar { align-items:stretch; flex-direction:column; } .toolbar-right, .search-form { width:100%; } .search-form { min-width:0; } .search-form input { min-width:0; } }
-    @media (max-width: 760px) { .wrap { padding:12px; } .hero, .card { border-radius:12px; padding:14px; } .inline { grid-template-columns:1fr; } table { display:block; overflow-x:auto; white-space:nowrap; } th, td { padding:8px 6px; } .metric h3 { font-size:22px; } input, select, textarea, button { min-height:42px; } .subnav, .toolbar-right { align-items:stretch; flex-direction:column; } .subnav a { text-align:center; } }
+    @media (max-width: 1100px) { .layout, .grid, .section-grid, .summary, .three, .preview-grid, .command-tools, .compact-profile, .sales-strip { grid-template-columns:1fr; } .sidebar { position:static; } .toolbar { align-items:stretch; flex-direction:column; } .toolbar-right, .search-form { width:100%; } .search-form { min-width:0; } .search-form input { min-width:0; } }
+    @media (max-width: 760px) { .wrap { padding:10px; } .hero, .card { border-radius:12px; padding:12px; } .hero { margin-bottom:12px; } h1 { font-size:26px; } h2 { font-size:22px; } .layout, .content { gap:12px; } .sidebar { grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; } .side-link { padding:10px; text-align:center; font-size:14px; } .inline, .profile-facts { grid-template-columns:1fr; } table { display:block; overflow-x:auto; white-space:nowrap; font-size:13px; } th, td { padding:8px 6px; } .metric { padding:12px; } .metric h3, .sales-card h3 { font-size:22px; overflow-wrap:anywhere; } input, select, textarea, button { min-height:42px; } .subnav, .toolbar-right, .actions { align-items:stretch; flex-direction:column; } .subnav a { text-align:center; } .command-edit form { min-width:0; } }
   </style>
 </head>
 <body>
@@ -113,6 +127,14 @@
         </div>
       </div>
       {% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+      {% if error_logs %}
+      <div class="flash alert-card">
+        <strong>Alerta de errores 500:</strong>
+        último error en <code>{{ error_logs[0].method }} {{ error_logs[0].path }}</code>
+        <span class="small">{{ error_logs[0].created_at or '' }}</span>
+        · <a href="{{ url_for('admin_panel', section='sistema') }}">Ver logs</a>
+      </div>
+      {% endif %}
       <p class="small">Ruta local sugerida: <code>http://127.0.0.1:8080/admin/panel</code></p>
       <div class="subnav">
         {% for nav in panel_nav_items[:9] %}
@@ -362,16 +384,21 @@
             </form>
           </div>
           {% if user_profile.user %}
-          <div class="summary">
-            <div class="metric"><span class="pill">ID</span><h3>{{ user_profile.user.id_tg }}</h3><div class="small">Telegram</div></div>
-            <div class="metric"><span class="pill">Rol</span><h3>{{ user_profile.user.rol_tg or 'FREE' }}</h3><div class="small">TG</div></div>
-            <div class="metric"><span class="pill">Plan</span><h3>{{ user_profile.user.plan or 'FREE' }}</h3><div class="small">{{ user_profile.user.fecha_caducidad or 'Sin vencimiento' }}</div></div>
-            <div class="metric"><span class="pill">Créditos</span><h3>{{ user_profile.user.creditos or 0 }}</h3><div class="small">Antispam {{ user_profile.user.antispam or 0 }}s</div></div>
-          </div>
-          <div class="three" style="margin-top:14px;">
-            <div class="mini-card"><strong>Estado</strong><div>{{ user_profile.user.estado or '—' }}</div></div>
-            <div class="mini-card"><strong>Web</strong><div>{{ user_profile.user.user_web or '—' }}</div><div class="small">Registro: {{ user_profile.user.register_web }}</div></div>
-            <div class="mini-card"><strong>WSP</strong><div>{{ user_profile.user.number_wsp or '—' }}</div><div class="small">Registro: {{ user_profile.user.register_wsp }}</div></div>
+          <div class="compact-profile">
+            <div class="summary">
+              <div class="metric"><span class="pill">ID</span><h3>{{ user_profile.user.id_tg }}</h3><div class="small">Telegram</div></div>
+              <div class="metric"><span class="pill">Rol</span><h3>{{ user_profile.user.rol_tg or 'FREE' }}</h3><div class="small">{{ user_profile.user.estado or '—' }}</div></div>
+              <div class="metric"><span class="pill">Plan</span><h3>{{ user_profile.user.plan or 'FREE' }}</h3><div class="small">{{ user_profile.user.fecha_caducidad or 'Sin vencimiento' }}</div></div>
+              <div class="metric"><span class="pill">Créditos</span><h3>{{ user_profile.user.creditos or 0 }}</h3><div class="small">Antispam {{ user_profile.user.antispam or 0 }}s</div></div>
+            </div>
+            <div class="profile-facts">
+              <div class="profile-fact"><strong>Web</strong>{{ user_profile.user.user_web or '—' }}<div class="small">{{ user_profile.user.register_web or 'Sin registro' }}</div></div>
+              <div class="profile-fact"><strong>WSP</strong>{{ user_profile.user.number_wsp or '—' }}<div class="small">{{ user_profile.user.register_wsp or 'Sin registro' }}</div></div>
+              <div class="profile-fact"><strong>Compras</strong>{{ user_profile.purchases|length }}</div>
+              <div class="profile-fact"><strong>Consultas</strong>{{ user_profile.history|length }}</div>
+              <div class="profile-fact"><strong>Keys</strong>{{ user_profile['keys']|length }}</div>
+              <div class="profile-fact"><strong>Solicitudes</strong>{{ user_profile.requests|length }}</div>
+            </div>
           </div>
           <form method="post" action="{{ url_for('admin_user_message') }}" class="inline" style="margin-top:14px;">
             <input type="hidden" name="id_tg" value="{{ user_profile.user.id_tg }}">
@@ -384,8 +411,8 @@
         </div>
         {% if user_profile.user %}
         <div class="section-grid">
-          <div class="card">
-            <div class="toolbar"><h2>Compras</h2><a href="{{ url_for('admin_panel', section='compras', purchase_user=profile_user_id) }}">Ver todas</a></div>
+          <details class="card panel-details" open>
+            <summary>Compras <a href="{{ url_for('admin_panel', section='compras', purchase_user=profile_user_id) }}">Ver todas</a></summary>
             <table>
               <thead><tr><th>ID</th><th>Compra</th><th>Vendedor</th><th>Fecha</th></tr></thead>
               <tbody>
@@ -395,9 +422,9 @@
                 {% if not user_profile.purchases %}<tr><td colspan="4">Sin compras.</td></tr>{% endif %}
               </tbody>
             </table>
-          </div>
-          <div class="card">
-            <div class="toolbar"><h2>Historial</h2><a href="{{ url_for('admin_panel', section='historial', history_user=profile_user_id) }}">Ver todo</a></div>
+          </details>
+          <details class="card panel-details">
+            <summary>Historial <a href="{{ url_for('admin_panel', section='historial', history_user=profile_user_id) }}">Ver todo</a></summary>
             <table>
               <thead><tr><th>ID</th><th>Comando</th><th>Valor</th><th>Fecha</th></tr></thead>
               <tbody>
@@ -407,10 +434,10 @@
                 {% if not user_profile.history %}<tr><td colspan="4">Sin historial.</td></tr>{% endif %}
               </tbody>
             </table>
-          </div>
+          </details>
         </div>
-        <div class="card">
-          <h2>Actividad reciente</h2>
+        <details class="card panel-details" open>
+          <summary>Actividad reciente</summary>
           <table>
             <thead><tr><th>Tipo</th><th>Detalle</th><th>Info</th><th>Fecha</th></tr></thead>
             <tbody>
@@ -420,9 +447,9 @@
               {% if not user_profile.activity %}<tr><td colspan="4">Sin actividad.</td></tr>{% endif %}
             </tbody>
           </table>
-        </div>
-        <div class="card">
-          <h2>Keys canjeadas</h2>
+        </details>
+        <details class="card panel-details">
+          <summary>Keys canjeadas</summary>
           <table>
             <thead><tr><th>ID</th><th>Key</th><th>Tipo</th><th>Cantidad</th><th>Fecha</th></tr></thead>
             <tbody>
@@ -432,9 +459,9 @@
               {% if not user_profile['keys'] %}<tr><td colspan="5">Sin keys canjeadas.</td></tr>{% endif %}
             </tbody>
           </table>
-        </div>
-        <div class="card">
-          <h2>Solicitudes</h2>
+        </details>
+        <details class="card panel-details">
+          <summary>Solicitudes</summary>
           <table>
             <thead><tr><th>ID</th><th>Comando</th><th>Estado</th><th>Costo</th><th>Pedido</th><th>Cierre</th></tr></thead>
             <tbody>
@@ -451,7 +478,7 @@
               {% if not user_profile.requests %}<tr><td colspan="6">Sin solicitudes.</td></tr>{% endif %}
             </tbody>
           </table>
-        </div>
+        </details>
         {% endif %}
       </div>
       {% endif %}
@@ -1557,6 +1584,12 @@
           </div>
           <div class="card">
             <h2>Errores recientes</h2>
+            <div class="summary" style="margin-bottom:14px;">
+              <div class="metric"><span class="pill">Logs</span><h3>{{ error_logs|length }}</h3><div class="small">Últimos registrados</div></div>
+              <div class="metric"><span class="pill">Última ruta</span><h3 style="font-size:18px;">{{ error_logs[0].path if error_logs else 'OK' }}</h3><div class="small">{{ error_logs[0].created_at if error_logs else 'Sin errores' }}</div></div>
+              <div class="metric"><span class="pill">Método</span><h3>{{ error_logs[0].method if error_logs else '—' }}</h3><div class="small">Del último error</div></div>
+              <div class="metric"><span class="pill">Estado</span><h3>{{ 'Revisar' if error_logs else 'OK' }}</h3><div class="small">Panel de salud</div></div>
+            </div>
             <table>
               <thead><tr><th>ID</th><th>Ruta</th><th>Error</th><th>Fecha</th></tr></thead>
               <tbody>
@@ -1605,6 +1638,11 @@
             <div class="metric"><span class="pill">Pendientes</span><h3>{{ dashboard.pendientes }}</h3><div class="small">Solicitudes sin resolver</div></div>
             <div class="metric"><span class="pill">Ventas</span><h3>{{ dashboard.ventas }}</h3><div class="small">Registros en compras</div></div>
           </div>
+          <div class="sales-strip" style="margin-top:14px;">
+            <div class="sales-card"><span class="pill">Ventas hoy</span><h3>{{ dashboard.periods.today.ventas }}</h3><div class="small">Consultas {{ dashboard.periods.today.consultas }} · Solicitudes {{ dashboard.periods.today.solicitudes }}</div></div>
+            <div class="sales-card"><span class="pill">Últimos 7 días</span><h3>{{ dashboard.periods.last_7.ventas }}</h3><div class="small">Actividad comercial semanal</div></div>
+            <div class="sales-card"><span class="pill">Últimos 30 días</span><h3>{{ dashboard.periods.last_30.ventas }}</h3><div class="small">Base para medir crecimiento</div></div>
+          </div>
         </div>
         <div class="section-grid">
           <div class="card">
@@ -1620,6 +1658,36 @@
                   <td>{{ period.solicitudes }}</td>
                 </tr>
                 {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>Ventas por tipo</h3>
+            <table>
+              <thead><tr><th>Tipo</th><th>Total</th></tr></thead>
+              <tbody>
+                {% for item in dashboard.ventas_por_tipo %}
+                <tr><td>{{ item.tipo }}</td><td>{{ item.total }}</td></tr>
+                {% endfor %}
+                {% if not dashboard.ventas_por_tipo %}
+                <tr><td colspan="2">Sin ventas aún.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="section-grid">
+          <div class="card">
+            <h3>Ventas por periodo</h3>
+            <table>
+              <thead><tr><th>Periodo</th><th>Total</th><th>Créditos</th><th>Días</th></tr></thead>
+              <tbody>
+                {% for item in dashboard.ventas_por_periodo %}
+                <tr><td>{{ item.label }}</td><td>{{ item.total }}</td><td>{{ item.creditos }}</td><td>{{ item.dias }}</td></tr>
+                {% endfor %}
+                {% if not dashboard.ventas_por_periodo %}
+                <tr><td colspan="4">Sin ventas aún.</td></tr>
+                {% endif %}
               </tbody>
             </table>
           </div>
@@ -1645,7 +1713,7 @@
               <thead><tr><th>ID usuario</th><th>Consultas</th></tr></thead>
               <tbody>
                 {% for item in dashboard.top_usuarios %}
-                <tr><td><a href="{{ url_for('admin_panel', section='usuario', id_tg=item.id_tg) }}">{{ item.id_tg }}</a></td><td>{{ item.total }}</td></tr>
+                <tr><td><a href="{{ url_for('admin_panel', section='usuario', uid=item.id_tg) }}">{{ item.id_tg }}</a></td><td>{{ item.total }}</td></tr>
                 {% endfor %}
                 {% if not dashboard.top_usuarios %}
                 <tr><td colspan="2">Sin datos aún.</td></tr>
