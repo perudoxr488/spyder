@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <title>Nexora Panel</title>
   <style>
-    :root { color-scheme: light; --bg:#f5f3ee; --bg-grad-1:#f7f1e8; --bg-grad-2:#efe7d8; --ink:#1e1d1a; --muted:#6a655c; --card:#fffdf8; --surface:#fff8ef; --surface-2:#f0e6d6; --line:#ddd2bf; --accent:#1f6f5f; --accent-2:#d99b38; --danger:#b64a3c; --accent-3:#325f9b; --preview-bg-1:#d9ecff; --preview-bg-2:#c8e2fb; --preview-line:#b8d2ea; --bubble-bg:#ffffff; --bubble-ink:#1b1f22; --flash-bg:#e7f4ed; --flash-line:#b9dec8; --input-bg:#fffdfa; --shadow-soft:0 10px 30px rgba(79,54,24,.08); --shadow-card:0 10px 20px rgba(79,54,24,.06); }
-    body.dark { color-scheme: dark; --bg:#09110f; --bg-grad-1:#07110e; --bg-grad-2:#10201b; --ink:#f7f1e7; --muted:#9fb0a8; --card:#101917; --surface:#17221f; --surface-2:#1d2a26; --line:#273734; --accent:#55d4b1; --accent-2:#f0b45b; --danger:#e17368; --accent-3:#8bb5ff; --preview-bg-1:#0d2331; --preview-bg-2:#163447; --preview-line:#285166; --bubble-bg:#1a313a; --bubble-ink:#f6efe4; --flash-bg:#122c22; --flash-line:#275141; --input-bg:#0d1614; --shadow-soft:0 18px 48px rgba(0,0,0,.32); --shadow-card:0 16px 34px rgba(0,0,0,.28); }
+    :root { color-scheme: light; --bg:#f5f3ee; --bg-grad-1:#f7f1e8; --bg-grad-2:#efe7d8; --ink:#1e1d1a; --muted:#6a655c; --card:#fffdf8; --surface:#fff8ef; --surface-2:#f0e6d6; --line:#ddd2bf; --accent:#1f6f5f; --accent-2:#d99b38; --danger:#b64a3c; --accent-3:#325f9b; --button-ink:#fffdf8; --danger-ink:#fffdf8; --preview-bg-1:#d9ecff; --preview-bg-2:#c8e2fb; --preview-line:#b8d2ea; --bubble-bg:#ffffff; --bubble-ink:#1b1f22; --flash-bg:#e7f4ed; --flash-line:#b9dec8; --input-bg:#fffdfa; --shadow-soft:0 10px 30px rgba(79,54,24,.08); --shadow-card:0 10px 20px rgba(79,54,24,.06); }
+    body.dark { color-scheme: dark; --bg:#09110f; --bg-grad-1:#07110e; --bg-grad-2:#10201b; --ink:#f7f1e7; --muted:#9fb0a8; --card:#101917; --surface:#17221f; --surface-2:#1d2a26; --line:#273734; --accent:#55d4b1; --accent-2:#f0b45b; --danger:#e17368; --accent-3:#8bb5ff; --button-ink:#06231d; --danger-ink:#1d0907; --preview-bg-1:#0d2331; --preview-bg-2:#163447; --preview-line:#285166; --bubble-bg:#1a313a; --bubble-ink:#f6efe4; --flash-bg:#122c22; --flash-line:#275141; --input-bg:#0d1614; --shadow-soft:0 18px 48px rgba(0,0,0,.32); --shadow-card:0 16px 34px rgba(0,0,0,.28); }
     * { box-sizing:border-box; }
     body { margin:0; font-family:Segoe UI, sans-serif; background:linear-gradient(180deg,var(--bg-grad-1) 0%,var(--bg-grad-2) 100%); color:var(--ink); transition:background .2s ease,color .2s ease; }
     .wrap { max-width:1400px; margin:0 auto; padding:24px; }
@@ -18,9 +18,9 @@
     input, select, textarea, button { width:100%; border-radius:12px; border:1px solid var(--line); padding:10px 12px; font:inherit; }
     input, select, textarea { background:var(--input-bg); color:var(--ink); }
     textarea { min-height:78px; resize:vertical; }
-    button { cursor:pointer; background:var(--accent); color:white; border:none; font-weight:600; }
+    button { cursor:pointer; background:var(--accent); color:var(--button-ink); border:none; font-weight:800; }
     button.secondary { background:var(--accent-2); color:#241b0f; }
-    button.danger { background:var(--danger); }
+    button.danger { background:var(--danger); color:var(--danger-ink); }
     table { width:100%; border-collapse:collapse; font-size:14px; }
     th, td { padding:10px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
     th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
@@ -135,7 +135,7 @@
         · <a href="{{ url_for('admin_panel', section='sistema') }}">Ver logs</a>
       </div>
       {% endif %}
-      <p class="small">Ruta local sugerida: <code>http://127.0.0.1:8080/admin/panel</code></p>
+      <p class="small">Panel privado NEXORA conectado a tu entorno de producción.</p>
       <div class="subnav">
         {% for nav in panel_nav_items[:9] %}
         <a href="{{ url_for('admin_panel', section=nav.section) }}">{{ nav.label }}</a>
