@@ -48,6 +48,9 @@ VALIDATION_MESSAGES = {
     "name": "Por favor, usa el formato correcto: /{command} nombre|paterno|materno",
 }
 
+PLAN_LEVELS = {"FREE": 0, "BASICO": 1, "STANDARD": 2, "PREMIUM": 3}
+PLAN_LABELS = {"FREE": "Libre", "BASICO": "Básico", "STANDARD": "Standard", "PREMIUM": "Premium"}
+
 LOADER_ALIASES = {
     "vehiculos": "SUNARP",
     "telefonia": "OSIPTEL",
@@ -139,6 +142,44 @@ def _first_arg(context: ContextTypes.DEFAULT_TYPE) -> str:
 
 def _validation_message(key: str, command: str) -> str:
     return (VALIDATION_MESSAGES.get(key) or VALIDATION_MESSAGES["missing"]).format(command=command)
+
+
+def _normalize_plan(value: str | None) -> str:
+    raw = (value or "").strip().upper()
+    aliases = {
+        "": "FREE",
+        "NONE": "FREE",
+        "PUBLICO": "FREE",
+        "PÚBLICO": "FREE",
+        "LIBRE": "FREE",
+        "BASIC": "BASICO",
+        "BÁSICO": "BASICO",
+        "STANDAR": "STANDARD",
+        "ESTANDAR": "STANDARD",
+        "ESTÁNDAR": "STANDARD",
+    }
+    raw = aliases.get(raw, raw)
+    return raw if raw in PLAN_LEVELS else "FREE"
+
+
+def _user_plan(info_usuario: dict) -> str:
+    return _normalize_plan(
+        info_usuario.get("PLAN")
+        or info_usuario.get("plan")
+        or info_usuario.get("ROL_TG")
+        or info_usuario.get("rol_tg")
+    )
+
+
+def _plan_block_message(command: str, required_plan: str, current_plan: str) -> str:
+    required_label = PLAN_LABELS.get(required_plan, required_plan)
+    current_label = PLAN_LABELS.get(current_plan, current_plan)
+    return (
+        "🔒 Acceso reservado\n\n"
+        f"El comando /{command} requiere plan {required_label} o superior.\n"
+        f"Tu plan actual es {current_label}.\n\n"
+        "Usa /buy para subir de rango y activar este comando."
+    )
 
 
 def _validate_input(command: str, context: ContextTypes.DEFAULT_TYPE, validation: str) -> str | None:
@@ -238,6 +279,15 @@ async def handle_request_command(
     command_cfg = get_command_runtime_config(command, default_cost)
     if not command_cfg.get("is_active", True):
         await msg.reply_text("⚠️ Este comando está desactivado temporalmente.")
+        return
+
+    required_plan = _normalize_plan(command_cfg.get("required_plan"))
+    current_plan = _user_plan(info_usuario)
+    if not _is_privileged_user(info_usuario) and PLAN_LEVELS[current_plan] < PLAN_LEVELS[required_plan]:
+        await msg.reply_text(
+            _plan_block_message(command, required_plan, current_plan),
+            reply_to_message_id=msg.message_id,
+        )
         return
 
     required_credits = int(command_cfg.get("cost") or default_cost)

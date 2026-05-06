@@ -15,6 +15,7 @@ CONFIG_FILE_PATH = os.path.join(BASE_DIR, "config.json")
 DB_PATH = db_path("multiplataforma.db")
 PAGE_SIZE = 5
 SEARCH_PAGE_SIZE = 8
+PLAN_LABELS = {"FREE": "Libre", "BASICO": "Básico", "STANDARD": "Standard", "PREMIUM": "Premium"}
 CFG = {}
 try:
     if os.path.exists(CONFIG_FILE_PATH):
@@ -384,6 +385,13 @@ def _kb_search_nav(query: str, page: int, total_pages: int):
     ])
 
 
+def _command_plan_label(cmd: dict) -> str:
+    raw = str(cmd.get("required_plan") or cmd.get("min_plan") or "FREE").strip().upper()
+    aliases = {"BASIC": "BASICO", "BÁSICO": "BASICO", "STANDAR": "STANDARD", "ESTANDAR": "STANDARD"}
+    raw = aliases.get(raw, raw)
+    return str(cmd.get("required_plan_label") or PLAN_LABELS.get(raw, "Libre"))
+
+
 def _home_caption(cfg: dict, user) -> str:
     bot_name = _bot_brand(cfg)
     nombre = html.escape(user.first_name or "Usuario")
@@ -425,6 +433,7 @@ def _category_caption(cfg: dict, category: dict, commands: list[dict], page: int
             f"🔹 <b>{html.escape(cmd['name'])}</b>",
             "┈┈┈┈┈┈┈┈┈┈",
             f"{'🟢' if is_active else '🔴'} <b>Estado</b> ⇒ <b>{'ACTIVO' if is_active else 'INACTIVO'}</b>",
+            f"💎 <b>Plan</b> ⇒ <code>{html.escape(_command_plan_label(cmd))}</code>",
             f"⌨️ <b>Uso</b> ⇒ <code>{html.escape(usage)}</code>",
             f"💳 <b>Costo</b> ⇒ <code>{int(cmd['cost'])} créditos</code>",
             f"📌 <b>Detalle</b> ⇒ <i>{html.escape(desc)}</i>",

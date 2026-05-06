@@ -138,6 +138,24 @@ def ensure_command_tables():
     conn.close()
 
 
+def _normalize_command_plan(value: str | None) -> str:
+    raw = (value or "").strip().upper()
+    aliases = {
+        "": "FREE",
+        "NONE": "FREE",
+        "PUBLICO": "FREE",
+        "PÚBLICO": "FREE",
+        "LIBRE": "FREE",
+        "BASIC": "BASICO",
+        "BÁSICO": "BASICO",
+        "STANDAR": "STANDARD",
+        "ESTANDAR": "STANDARD",
+        "ESTÁNDAR": "STANDARD",
+    }
+    raw = aliases.get(raw, raw)
+    return raw if raw in {"FREE", "BASICO", "STANDARD", "PREMIUM"} else "FREE"
+
+
 def get_command_runtime_config(command_slug: str, default_cost: int = 1):
     if API_BASE:
         st, js = _fetch_json(
@@ -158,6 +176,7 @@ def get_command_runtime_config(command_slug: str, default_cost: int = 1):
                     "description": data.get("description") or "",
                     "usage_hint": data.get("usage_hint") or "",
                     "validation": data.get("validation") if isinstance(data.get("validation"), dict) else {},
+                    "required_plan": _normalize_command_plan(data.get("required_plan") or data.get("min_plan")),
                 }
 
     ensure_command_tables()
@@ -188,15 +207,24 @@ def get_command_runtime_config(command_slug: str, default_cost: int = 1):
             "description": "",
             "usage_hint": "",
             "validation": {},
+            "required_plan": "FREE",
         }
     description = row["description"] or ""
     validation = {}
+    required_plan = "FREE"
     if description.strip().startswith("{"):
         try:
             payload = json.loads(description)
             if isinstance(payload, dict):
                 description = str(payload.get("info") or "").strip()
                 validation = payload.get("validation") if isinstance(payload.get("validation"), dict) else {}
+                access = payload.get("access") if isinstance(payload.get("access"), dict) else {}
+                required_plan = _normalize_command_plan(
+                    payload.get("required_plan")
+                    or payload.get("min_plan")
+                    or access.get("required_plan")
+                    or access.get("min_plan")
+                )
         except Exception:
             pass
     return {
@@ -210,6 +238,7 @@ def get_command_runtime_config(command_slug: str, default_cost: int = 1):
         "description": description,
         "usage_hint": row["usage_hint"] or "",
         "validation": validation,
+        "required_plan": required_plan,
     }
 
 

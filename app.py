@@ -724,23 +724,68 @@ def get_catalog_categories():
     return rows
 
 
-def _split_command_description(raw_description: str | None):
+COMMAND_PLAN_LEVELS = {"FREE": 0, "BASICO": 1, "STANDARD": 2, "PREMIUM": 3}
+COMMAND_PLAN_LABELS = {
+    "FREE": "Libre",
+    "BASICO": "Básico",
+    "STANDARD": "Standard",
+    "PREMIUM": "Premium",
+}
+
+
+def _normalize_command_plan(value: str | None) -> str:
+    raw = (value or "").strip().upper()
+    aliases = {
+        "": "FREE",
+        "NONE": "FREE",
+        "PUBLICO": "FREE",
+        "PÚBLICO": "FREE",
+        "LIBRE": "FREE",
+        "BASIC": "BASICO",
+        "BÁSICO": "BASICO",
+        "STANDAR": "STANDARD",
+        "ESTANDAR": "STANDARD",
+        "ESTÁNDAR": "STANDARD",
+    }
+    raw = aliases.get(raw, raw)
+    return raw if raw in COMMAND_PLAN_LEVELS else "FREE"
+
+
+def _command_plan_label(value: str | None) -> str:
+    return COMMAND_PLAN_LABELS.get(_normalize_command_plan(value), "Libre")
+
+
+def _split_command_payload(raw_description: str | None):
     raw = (raw_description or "").strip()
     if not raw.startswith("{"):
-        return raw, {}
+        return raw, {}, "FREE"
     try:
         payload = json.loads(raw)
     except Exception:
-        return raw, {}
+        return raw, {}, "FREE"
     if not isinstance(payload, dict):
-        return raw, {}
+        return raw, {}, "FREE"
     validation = payload.get("validation")
     if not isinstance(validation, dict):
         validation = {}
-    return str(payload.get("info") or "").strip(), validation
+    access = payload.get("access")
+    if not isinstance(access, dict):
+        access = {}
+    required_plan = _normalize_command_plan(
+        payload.get("required_plan")
+        or payload.get("min_plan")
+        or access.get("required_plan")
+        or access.get("min_plan")
+    )
+    return str(payload.get("info") or "").strip(), validation, required_plan
 
 
-def _pack_command_description(info: str | None, validation: dict | None):
+def _split_command_description(raw_description: str | None):
+    info, validation, _required_plan = _split_command_payload(raw_description)
+    return info, validation
+
+
+def _pack_command_description(info: str | None, validation: dict | None, required_plan: str | None = "FREE"):
     info = (info or "").strip()
     clean_validation = {}
     for key, value in (validation or {}).items():
@@ -750,13 +795,23 @@ def _pack_command_description(info: str | None, validation: dict | None):
         if value == "":
             continue
         clean_validation[key] = value
-    if not clean_validation:
+    required_plan = _normalize_command_plan(required_plan)
+    if not clean_validation and required_plan == "FREE":
         return info
+    payload = {"info": info}
+    if clean_validation:
+        payload["validation"] = clean_validation
+    if required_plan != "FREE":
+        payload["access"] = {"min_plan": required_plan}
     return json.dumps(
-        {"info": info, "validation": clean_validation},
+        payload,
         ensure_ascii=False,
         separators=(",", ":"),
     )
+
+
+def _command_required_plan_from_form():
+    return _normalize_command_plan(request.form.get("required_plan") or request.form.get("min_plan"))
 
 
 def _command_validation_from_form():
@@ -799,10 +854,12 @@ def _validation_label(validation_type: str | None):
 
 def _hydrate_command_row(row: dict):
     raw_description = row.get("description") or ""
-    description, validation = _split_command_description(raw_description)
+    description, validation, required_plan = _split_command_payload(raw_description)
     row["raw_description"] = raw_description
     row["description"] = description
     row["validation"] = validation
+    row["required_plan"] = required_plan
+    row["required_plan_label"] = _command_plan_label(required_plan)
     row["validation_type"] = validation.get("type") or "none"
     row["validation_length"] = validation.get("length") or ""
     row["validation_min_length"] = validation.get("min_length") or ""
@@ -860,8 +917,10 @@ def get_command_config_value(slug: str, default_cost: int = 1):
             "description": "",
             "usage_hint": "",
             "validation": {},
+            "required_plan": "FREE",
+            "required_plan_label": _command_plan_label("FREE"),
         }
-    description, validation = _split_command_description(row["description"] or "")
+    description, validation, required_plan = _split_command_payload(row["description"] or "")
     return {
         "exists": True,
         "slug": row["slug"],
@@ -874,6 +933,8 @@ def get_command_config_value(slug: str, default_cost: int = 1):
         "raw_description": row["description"] or "",
         "usage_hint": row["usage_hint"] or "",
         "validation": validation,
+        "required_plan": required_plan,
+        "required_plan_label": _command_plan_label(required_plan),
     }
 
 
@@ -1010,6 +1071,7 @@ def parse_bulk_command_rows(raw_text: str):
         validation_regex = parts[9].strip() if len(parts) >= 10 else ""
         validation_empty = parts[10].strip() if len(parts) >= 11 else ""
         validation_invalid = parts[11].strip() if len(parts) >= 12 else ""
+        required_plan = _normalize_command_plan(parts[12].strip() if len(parts) >= 13 else "FREE")
         if not slug or not name:
             errors.append(f"Línea {idx}: slug y nombre son obligatorios")
             continue
@@ -1045,7 +1107,7 @@ def parse_bulk_command_rows(raw_text: str):
                 "name": name,
                 "cost": cost,
                 "usage_hint": usage_hint,
-                "description": _pack_command_description(description, validation),
+                "description": _pack_command_description(description, validation, required_plan),
                 "is_active": is_active,
                 "sort_order": sort_order,
             }
@@ -4235,7 +4297,8 @@ def admin_save_command():
     name = (request.form.get("name") or "").strip()
     description = (request.form.get("description") or "").strip()
     validation = _command_validation_from_form()
-    stored_description = _pack_command_description(description, validation)
+    required_plan = _command_required_plan_from_form()
+    stored_description = _pack_command_description(description, validation, required_plan)
     usage_hint = (request.form.get("usage_hint") or "").strip()
     category_id = request.form.get("category_id") or None
     try:
@@ -4273,7 +4336,7 @@ def admin_save_command():
     )
     conn.commit()
     conn.close()
-    log_audit_event("command.save", slug, f"name={name}; cost={max(0, cost)}; active={is_active}; category_id={category_id}")
+    log_audit_event("command.save", slug, f"name={name}; cost={max(0, cost)}; active={is_active}; category_id={category_id}; required_plan={required_plan}")
     return redirect(url_for("admin_panel", section="comandos", flash=f"Comando /{slug} guardado."))
 
 
