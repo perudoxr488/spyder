@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -20,6 +21,15 @@ except Exception:
 
 CMDS = CFG.get("CMDS", {}) or {}
 ERRS = CFG.get("ERRORCONSULTA", {}) or {}
+
+_admin_raw = os.environ.get("SPIDERSYN_ADMIN_ID") or os.environ.get("ADMIN_ID") or CFG.get("ADMIN_ID")
+if isinstance(_admin_raw, list):
+    _admin_values = _admin_raw
+elif _admin_raw is None:
+    _admin_values = []
+else:
+    _admin_values = str(_admin_raw).replace(",", " ").split()
+ADMIN_IDS = {int(x) for x in _admin_values if str(x).strip().isdigit()}
 
 NOCRED_TXT = ERRS.get("NOCREDITSTXT") or "[❗] No tienes créditos suficientes."
 NOCRED_FT = (ERRS.get("NOCREDITSFT") or "").strip() or None
@@ -159,6 +169,49 @@ def _loader_assets(category_slug: str | None):
     return loading_ft, loading_txt
 
 
+def _antispam_seconds(info_usuario: dict) -> int:
+    raw = (
+        info_usuario.get("ANTISPAM")
+        or info_usuario.get("anti_spam")
+        or info_usuario.get("antispam")
+        or info_usuario.get("ANTI_SPAM")
+        or 0
+    )
+    try:
+        return max(0, int(float(raw)))
+    except Exception:
+        return 0
+
+
+def _is_privileged_user(info_usuario: dict) -> bool:
+    role = (
+        info_usuario.get("ROL_TG")
+        or info_usuario.get("ROL")
+        or info_usuario.get("role")
+        or info_usuario.get("rol")
+        or ""
+    )
+    return str(role).strip().upper() in {"FUNDADOR", "DUEÑO", "DUENO", "OWNER", "ADMIN", "COFUNDADOR"}
+
+
+def _check_request_cooldown(context: ContextTypes.DEFAULT_TYPE, user_id: int, info_usuario: dict) -> str | None:
+    if user_id in ADMIN_IDS or _is_privileged_user(info_usuario):
+        return None
+    cooldown = _antispam_seconds(info_usuario)
+    if cooldown <= 0:
+        return None
+    bot_data = getattr(context.application, "bot_data", {}) if getattr(context, "application", None) else {}
+    store = bot_data.setdefault("request_command_cooldowns", {})
+    key = str(user_id)
+    now = time.monotonic()
+    last = float(store.get(key) or 0)
+    remaining = int(round(cooldown - (now - last)))
+    if remaining > 0:
+        return f"UPS, por favor espera el anti-spam de {cooldown} segundos.\nIntenta de nuevo en {remaining} s."
+    store[key] = now
+    return None
+
+
 async def handle_request_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -197,6 +250,11 @@ async def handle_request_command(
             await msg.reply_text(NOCRED_TXT, parse_mode="HTML")
         return
 
+    cooldown_error = _check_request_cooldown(context, user.id, info_usuario)
+    if cooldown_error:
+        await msg.reply_text(cooldown_error, reply_to_message_id=msg.message_id)
+        return
+
     loader_category = command_cfg.get("category_slug") or category_slug
     loading_ft, loading_txt = _loader_assets(loader_category)
     try:
@@ -207,7 +265,7 @@ async def handle_request_command(
     except Exception:
         pass
 
-    await create_request(update, context, command, cost=required_credits)
+    await create_request(update, context, command, cost=required_credits, user_info=info_usuario)
 
 
 def make_request_command(command: str, default_cost: int, category_slug: str, validation: str):

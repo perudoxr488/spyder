@@ -1,3 +1,4 @@
+import html
 import json
 import os
 import re
@@ -137,7 +138,7 @@ def _request_row_to_payload(row) -> dict:
         attachment_file_unique_id,
         attachment_file_name,
         attachment_caption,
-    ) = row[:14]
+    ) = row[:19]
     return {
         "id": request_id,
         "user_id": user_id,
@@ -325,6 +326,56 @@ def _trim(text: str | None, limit: int = 90) -> str:
     if len(value) <= limit:
         return value
     return value[: limit - 1] + "…"
+
+
+def _html(value) -> str:
+    return html.escape(str(value or ""), quote=False)
+
+
+def _user_request_card(title: str, request_id: int, command: str, body: str, footer: str = "") -> str:
+    lines = [
+        f"<b>#SPIDERSYN ⇒ {title}</b>",
+        "",
+        f"<b>Solicitud</b> ⇒ <code>#{int(request_id)}</code>",
+        f"<b>Comando</b> ⇒ <code>/{_html(command)}</code>",
+        "",
+        _html(body).strip() or "—",
+    ]
+    if footer:
+        lines.extend(["", _html(footer)])
+    return "\n".join(lines)
+
+
+def _request_owner_notice(request_id: int, user, command: str, cost: int, payload: str, user_info: dict | None = None) -> str:
+    info = user_info or {}
+    plan = info.get("PLAN") or info.get("plan") or "—"
+    credits = info.get("CREDITOS") or info.get("creditos") or info.get("credits") or "—"
+    antispam = info.get("ANTISPAM") or info.get("anti_spam") or info.get("antispam") or "—"
+    username = _target_label(getattr(user, "username", None), getattr(user, "id", ""))
+    return "\n".join(
+        [
+            f"<b>📩 Nueva solicitud #{int(request_id)}</b>",
+            "",
+            f"<b>Usuario</b> ⇒ {_html(username)}",
+            f"<b>ID</b> ⇒ <code>{_html(getattr(user, 'id', ''))}</code>",
+            f"<b>Comando</b> ⇒ <code>/{_html(command)}</code>",
+            f"<b>Costo</b> ⇒ <code>{int(cost)} créditos</code>",
+            f"<b>Plan</b> ⇒ <code>{_html(plan)}</code>",
+            f"<b>Créditos</b> ⇒ <code>{_html(credits)}</code>",
+            f"<b>Anti-spam</b> ⇒ <code>{_html(antispam)} s</code>",
+            f"<b>Fecha</b> ⇒ <code>{now_iso()}</code>",
+            "",
+            "<b>Pedido</b>",
+            f"<pre>{_html(_trim(payload, 1200))}</pre>",
+            "",
+            "<b>Acciones rápidas</b>",
+            f"<code>/reply {int(request_id)} texto</code>",
+            f"<code>/rquick {int(request_id)} completado</code>",
+            f"<code>/done {int(request_id)}</code>",
+            f"<code>/close {int(request_id)} motivo</code>",
+            f"<code>/fail {int(request_id)} motivo</code>",
+        ]
+    )
 
 
 def _request_media_source(message):
@@ -610,7 +661,8 @@ async def _send_request_reply(context: ContextTypes.DEFAULT_TYPE, admin_id: int,
 
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"📬 Respuesta a tu solicitud #{request_id}\n📌 Comando: /{command}\n\n{reply_text}",
+        text=_user_request_card("RESPUESTA", request_id, command, reply_text),
+        parse_mode="HTML",
     )
     _mark_request_delivery(c, request_id, admin_id, reply_text, charged=int(charged or 0), resolved=False)
     conn.commit()
@@ -632,7 +684,8 @@ async def _send_request_reply_free(context: ContextTypes.DEFAULT_TYPE, admin_id:
         return False, f"⚠️ La solicitud #{request_id} ya está en estado {status}."
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"📬 Respuesta a tu solicitud #{request_id}\n📌 Comando: /{command}\n\n{reply_text}\n\nNo se descontaron créditos.",
+        text=_user_request_card("RESPUESTA SIN COBRO", request_id, command, reply_text, "No se descontaron créditos."),
+        parse_mode="HTML",
     )
     _mark_request_delivery(c, request_id, admin_id, f"[sin_cobro] {reply_text}", charged=int(charged or 0), resolved=False)
     conn.commit()
@@ -657,7 +710,8 @@ async def _done_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int,
     final_note = note or "✅ Tu solicitud fue finalizada por el administrador."
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"📌 Solicitud #{request_id} finalizada.\n📌 Comando: /{command}\n\n{final_note}",
+        text=_user_request_card("SOLICITUD FINALIZADA", request_id, command, final_note),
+        parse_mode="HTML",
     )
     _update_request_status(c, request_id, "resolved", admin_id, _append_note(resolution_note, final_note))
     conn.commit()
@@ -682,7 +736,8 @@ async def _close_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int
     final_note = note or "Tu solicitud fue cerrada por el administrador."
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"📌 Tu solicitud #{request_id} del comando /{command} fue cerrada.\n\n{final_note}\n\nNo se descontaron créditos.",
+        text=_user_request_card("SOLICITUD CERRADA", request_id, command, final_note, "No se descontaron créditos."),
+        parse_mode="HTML",
     )
     _update_request_status(c, request_id, "cancelled", admin_id, final_note)
     conn.commit()
@@ -707,7 +762,8 @@ async def _fail_request_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int,
     final_note = note or _resolve_template("nodata") or DEFAULT_QUICK_TEMPLATES["nodata"]
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"📬 Resultado de tu solicitud #{request_id}\n📌 Comando: /{command}\n\n{final_note}\n\nNo se descontaron créditos.",
+        text=_user_request_card("SOLICITUD FALLIDA", request_id, command, final_note, "No se descontaron créditos."),
+        parse_mode="HTML",
     )
     _update_request_status(c, request_id, "failed", admin_id, final_note)
     conn.commit()
@@ -737,7 +793,8 @@ async def _send_template_by_id(context: ContextTypes.DEFAULT_TYPE, admin_id: int
 
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"📬 Respuesta a tu solicitud #{request_id}\n📌 Comando: /{command}\n\n{template_text}",
+        text=_user_request_card("RESPUESTA", request_id, command, template_text),
+        parse_mode="HTML",
     )
     _mark_request_delivery(c, request_id, admin_id, f"[template:{template_key}] {template_text}", charged=int(charged or 0), resolved=False)
     conn.commit()
@@ -793,7 +850,7 @@ async def _update_admin_message_markup(context: ContextTypes.DEFAULT_TYPE, reque
         pass
 
 
-async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, command: str, cost: int = 1):
+async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, command: str, cost: int = 1, user_info: dict | None = None):
     user = update.effective_user
     message = update.message
     from comandos.utils import get_command_runtime_config
@@ -846,9 +903,19 @@ async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     _log_historial(user.id, command, payload)
 
     await message.reply_text(
-        f"✅ Tu solicitud *{command.upper()}* está siendo procesada por el bot.\n"
-        f"ID de solicitud: {request_id}",
-        parse_mode="Markdown",
+        "\n".join(
+            [
+                "<b>#SPIDERSYN ⇒ SOLICITUD RECIBIDA</b>",
+                "",
+                f"<b>Solicitud</b> ⇒ <code>#{request_id}</code>",
+                f"<b>Comando</b> ⇒ <code>/{_html(command)}</code>",
+                f"<b>Costo</b> ⇒ <code>{int(cost)} créditos</code>",
+                "<b>Estado</b> ⇒ <code>Pendiente</code>",
+                "",
+                "Tu pedido ya fue enviado al equipo.",
+            ]
+        ),
+        parse_mode="HTML",
     )
 
     admin_chat_id = primary_admin_id()
@@ -858,18 +925,8 @@ async def create_request(update: Update, context: ContextTypes.DEFAULT_TYPE, com
 
     sent = await context.bot.send_message(
         chat_id=admin_chat_id,
-        text=(
-            f"📩 Nueva solicitud #{request_id}\n"
-            f"👤 Usuario: {_target_label(user.username, user.id)}\n"
-            f"📌 Comando: /{command}\n"
-            f"💳 Costo: {cost} créditos\n"
-            f"📝 Pedido: {payload}\n\n"
-            f"Comandos:\n"
-            f"/reply {request_id} <texto>\n"
-            f"/close {request_id} [motivo]\n"
-            f"/fail {request_id} [motivo]\n"
-            f"/rquick {request_id} <plantilla>"
-        ),
+        text=_request_owner_notice(request_id, user, command, cost, payload, user_info),
+        parse_mode="HTML",
         reply_markup=_build_request_keyboard(request_id, "pending"),
     )
     if media_source:
